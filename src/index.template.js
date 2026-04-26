@@ -193,7 +193,29 @@ function renderApp() {
 
   <!-- ── Form panel ── -->
   <div class="panel">
-    <h2>Visit details</h2>
+    <h2>Draft from transcript</h2>
+
+    <div class="field row">
+      <div>
+        <label for="channel">Patient channel</label>
+        <select id="channel">
+          <option value="">Loading channels…</option>
+        </select>
+      </div>
+      <div>
+        <label for="session">Session</label>
+        <select id="session" disabled>
+          <option value="">Pick a channel first</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-bottom:8px">
+      <button class="btn btn-primary" id="draftBtn" type="button" disabled>Draft note from transcript</button>
+    </div>
+    <div id="draftStatus" class="hint" style="min-height:18px"></div>
+
+    <h2 style="margin-top:24px">Visit details</h2>
 
     <div class="field row">
       <div>
@@ -393,6 +415,160 @@ function renderApp() {
       if (el && el.tagName === 'SELECT') el.addEventListener('change', update);
     });
 
+  // ────── Fireflies + AI drafting ──────
+  let allSessions = [];
+
+  function setStatus(text, kind) {
+    const el = $('draftStatus');
+    el.textContent = text || '';
+    el.style.color = kind === 'error' ? '#A12C7B' : (kind === 'ok' ? '#437A22' : '#9B8CB5');
+  }
+
+  // Convert channel title (e.g. 'GRACE H') to a likely 'Last, First' guess.
+  // Channel titles in Fireflies are usually FIRST LAST (sometimes just one word).
+  function channelToPatientName(title) {
+    if (!title) return '';
+    const t = title.trim();
+    // Title-case the words
+    const tc = s => s.split(/\s+/).map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+    const parts = t.split(/\s+/);
+    if (parts.length >= 2) {
+      // Last name = last token, first name(s) = everything before
+      const last = tc(parts[parts.length - 1]);
+      const first = tc(parts.slice(0, -1).join(' '));
+      return last + ', ' + first;
+    }
+    return tc(t);
+  }
+
+  function fmtSessionLabel(s) {
+    const d = new Date(Number(s.date) || 0);
+    const dateStr = d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const timeStr = d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+    let dur = '';
+    if (s.duration) {
+      const total = Math.round(Number(s.duration));
+      if (total >= 60) {
+        const h = Math.floor(total / 60), m = total % 60;
+        dur = '  •  ' + h + 'h' + (m ? ' ' + m + 'm' : '');
+      } else {
+        dur = '  •  ' + total + 'm';
+      }
+    }
+    return dateStr + '  •  ' + timeStr + dur + (s.title ? '  —  ' + s.title : '');
+  }
+
+  // Load channels on page open
+  (async () => {
+    try {
+      const r = await fetch('/api/channels');
+      if (!r.ok) throw new Error('Failed to load channels');
+      const d = await r.json();
+      const sel = $('channel');
+      sel.innerHTML = '<option value="">Pick a patient channel…</option>';
+      const sorted = (d.channels || []).slice().sort((a,b) =>
+        (a.title || '').toLowerCase().localeCompare((b.title || '').toLowerCase()));
+      for (const c of sorted) {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.title || '(untitled)';
+        sel.appendChild(o);
+      }
+    } catch (e) {
+      $('channel').innerHTML = '<option value="">Could not load channels</option>';
+      setStatus('Channels not available: ' + (e.message || e), 'error');
+    }
+  })();
+
+  // When channel changes, load its sessions
+  $('channel').addEventListener('change', async () => {
+    const cid = $('channel').value;
+    const sessSel = $('session');
+    sessSel.disabled = true;
+    sessSel.innerHTML = '<option value="">Loading sessions…</option>';
+    $('draftBtn').disabled = true;
+    if (!cid) {
+      sessSel.innerHTML = '<option value="">Pick a channel first</option>';
+      return;
+    }
+    const channelTitle = $('channel').selectedOptions[0].textContent;
+    // Pre-fill patient name from channel
+    if (!$('patientName').value.trim()) {
+      $('patientName').value = channelToPatientName(channelTitle);
+      update();
+    }
+    try {
+      const r = await fetch('/api/transcripts', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ channelId: cid, limit: 50 }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      allSessions = (d.transcripts || []).slice()
+        .sort((a,b) => Number(b.date||0) - Number(a.date||0));
+      sessSel.innerHTML = '<option value="">Pick a session…</option>';
+      for (const s of allSessions) {
+        const o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = fmtSessionLabel(s);
+        sessSel.appendChild(o);
+      }
+      sessSel.disabled = false;
+    } catch (e) {
+      sessSel.innerHTML = '<option value="">Failed to load sessions</option>';
+      setStatus('Could not load sessions: ' + (e.message || e), 'error');
+    }
+  });
+
+  // When a session is picked, enable Draft + auto-fill date
+  $('session').addEventListener('change', () => {
+    const sid = $('session').value;
+    $('draftBtn').disabled = !sid;
+    if (sid) {
+      const s = allSessions.find(x => x.id === sid);
+      if (s && s.date) {
+        const d = new Date(Number(s.date));
+        const iso = d.getFullYear() + '-' +
+          String(d.getMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getDate()).padStart(2, '0');
+        $('dos').value = iso;
+        update();
+      }
+    }
+  });
+
+  // Click 'Draft note' — fetch transcript, send to AI, fill noteBody
+  $('draftBtn').addEventListener('click', async () => {
+    const sid = $('session').value;
+    if (!sid) return;
+    const btn = $('draftBtn');
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Drafting… (this takes 15–30 seconds)';
+    setStatus('Pulling transcript and drafting note. Hang tight…', '');
+    try {
+      const r = await fetch('/api/draft', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ id: sid }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t || ('HTTP ' + r.status));
+      }
+      const d = await r.json();
+      $('noteBody').value = d.note || '';
+      update();
+      setStatus('Draft ready. Review and edit before copying.', 'ok');
+    } catch (e) {
+      setStatus('Draft failed: ' + (e.message || e), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  });
+
   // Auto-fill total min when start/stop change
   ['startTime','stopTime'].forEach(id => {
     $(id).addEventListener('change', () => {
@@ -504,6 +680,56 @@ function renderApp() {
 }
 
 // ───────── Worker entry ─────────
+const FIREFLIES_ENDPOINT = "https://api.fireflies.ai/graphql";
+const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+
+async function fireflies(env, query, variables = {}) {
+  const apiKey = env.FIREFLIES_API_KEY;
+  if (!apiKey) throw new Error("FIREFLIES_API_KEY not configured");
+  const res = await fetch(FIREFLIES_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  const data = await res.json();
+  if (data.errors) {
+    throw new Error("Fireflies error: " + JSON.stringify(data.errors));
+  }
+  return data.data;
+}
+
+async function openaiChat(env, messages, model) {
+  const apiKey = env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+  const res = await fetch(OPENAI_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model || "gpt-4o",
+      temperature: 0.2,
+      messages,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error("OpenAI error: " + JSON.stringify(data).slice(0, 500));
+  }
+  return data.choices?.[0]?.message?.content || "";
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 function html(body, status = 200) {
   return new Response(body, {
     status,
@@ -559,6 +785,111 @@ export default {
 
     // Main page
     if (pathname === "/" && method === "GET") return html(renderApp());
+
+    // ── API: list Fireflies channels ───────────────────────────────────
+    if (pathname === "/api/channels" && method === "GET") {
+      try {
+        const query = `{ channels { id title is_private } }`;
+        const data = await fireflies(env, query);
+        return json({ channels: data.channels || [] });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+
+    // ── API: list transcripts in a channel ─────────────────────────────
+    if (pathname === "/api/transcripts" && method === "POST") {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const channelId = body.channelId;
+        const limit = Math.min(Math.max(parseInt(body.limit, 10) || 50, 1), 200);
+        if (!channelId) return json({ error: "channelId required" }, 400);
+        const query = `query($channelId: String, $limit: Int) {
+          transcripts(channel_id: $channelId, limit: $limit) {
+            id title date duration
+          }
+        }`;
+        const data = await fireflies(env, query, { channelId, limit });
+        return json({ transcripts: data.transcripts || [] });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+
+    // ── API: draft a psychiatric note from a transcript ────────────────
+    if (pathname === "/api/draft" && method === "POST") {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const id = body.id;
+        if (!id) return json({ error: "id required" }, 400);
+        const tQuery = `query($id: String!) {
+          transcript(id: $id) {
+            id title date
+            sentences { speaker_name text start_time }
+          }
+        }`;
+        const tData = await fireflies(env, tQuery, { id });
+        const t = tData.transcript;
+        if (!t) return json({ error: "Transcript not found" }, 404);
+        const sentences = Array.isArray(t.sentences) ? t.sentences : [];
+        // Group consecutive sentences by speaker
+        const lines = [];
+        let curSpeaker = null;
+        let buf = [];
+        for (const s of sentences) {
+          const sp = s.speaker_name || "Unknown";
+          if (sp !== curSpeaker) {
+            if (buf.length) lines.push(`${curSpeaker}: ${buf.join(" ")}`);
+            curSpeaker = sp;
+            buf = [s.text || ""];
+          } else {
+            buf.push(s.text || "");
+          }
+        }
+        if (buf.length) lines.push(`${curSpeaker}: ${buf.join(" ")}`);
+        let transcriptText = lines.join("\n");
+        // Cap at ~60k chars to stay within model context comfortably
+        const MAX = 60000;
+        if (transcriptText.length > MAX) {
+          transcriptText = transcriptText.slice(0, MAX) + "\n...[truncated]";
+        }
+        const system = `You are a psychiatric nurse practitioner's clinical scribe. You draft concise, professional follow-up psychiatric progress notes for a Carepatron EHR based on raw session transcripts. Write in third person, clinical tone. Do not invent facts. If something was not discussed, omit or write "Not discussed." Use the patient's words sparingly in quotes when clinically meaningful.`;
+        const user = `Draft a psychiatric progress note from the transcript below. Use this exact section structure with these headers, each on its own line:
+
+Chief Complaint:
+Interim History:
+Medications Reviewed:
+Mental Status Exam:
+Assessment:
+Plan:
+Risk Assessment:
+
+Guidelines:
+- Chief Complaint: one sentence in patient's words if available.
+- Interim History: 3-6 sentences covering symptoms, sleep, appetite, mood, anxiety, stressors, substance use, side effects since last visit.
+- Medications Reviewed: bullet list of any medications discussed with adherence/efficacy/side effects.
+- Mental Status Exam: brief paragraph (appearance, behavior, speech, mood, affect, thought process, thought content, perception, cognition, insight, judgment). If not directly observed in transcript, infer reasonably from interaction (e.g., "linear and goal-directed", "euthymic") and note "per video session."
+- Assessment: 2-4 sentences with diagnostic impression and clinical reasoning.
+- Plan: bullet list — medication changes, follow-up interval, labs, referrals, psychotherapy recommendations, safety planning if applicable.
+- Risk Assessment: one sentence on suicidal/homicidal ideation, plan, intent. Default to "Patient denies SI/HI, plan, or intent. No acute safety concerns at this time." unless transcript indicates otherwise.
+
+Do not include a header, patient name, date, signature, or billing block — those are added separately. Output only the note body text. Do not use markdown bold/italic.
+
+TRANSCRIPT:
+${transcriptText}`;
+        const note = await openaiChat(env, [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ], "gpt-4o");
+        return json({
+          note,
+          title: t.title || "",
+          date: t.date || null,
+        });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
 
     return new Response(JSON.stringify({ error: "Not found", path: pathname }), {
       status: 404,
