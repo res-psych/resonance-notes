@@ -1,0 +1,6 @@
+name = "resonance-notes"
+main = "src/index.js"
+compatibility_date = "2026-04-25"
+
+[vars]
+SITE_PASSWORD = "vm-heron-clover-27"
