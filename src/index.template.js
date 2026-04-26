@@ -206,7 +206,7 @@ function renderApp() {
       </div>
     </div>
 
-    <div class="field">
+    <div class="field" id="teleField">
       <label for="telehealth">Telehealth statement</label>
       <textarea id="telehealth" rows="4">${DEFAULT_TELEHEALTH}</textarea>
     </div>
@@ -243,9 +243,9 @@ function renderApp() {
       <div>
         <label for="pos">Place of service</label>
         <select id="pos">
-          <option value="02 — Telehealth (patient not in home)">02 — Telehealth</option>
-          <option value="10 — Telehealth (patient at home)" selected>10 — Telehealth (home)</option>
-          <option value="11 — Office">11 — Office</option>
+          <option value="02 — Telehealth (patient not in home)" data-mode="telehealth">02 — Telehealth</option>
+          <option value="10 — Telehealth (patient at home)" data-mode="telehealth" selected>10 — Telehealth (home)</option>
+          <option value="11 — Office" data-mode="office">11 — Office (in person)</option>
         </select>
       </div>
     </div>
@@ -294,7 +294,7 @@ function renderApp() {
         <div class="lbl">Date of service</div><div class="val" id="pv-dos">—</div>
       </div>
 
-      <h3>Telehealth attestation</h3>
+      <h3 id="pv-tele-h">Telehealth attestation</h3>
       <div class="telehealth" id="pv-telehealth">—</div>
 
       <h3>Note</h3>
@@ -348,7 +348,14 @@ function renderApp() {
     const cpt = $('cpt').value.trim();
     const addon = $('addon').value.trim();
     const pos = $('pos').value;
+    const posSel = $('pos').selectedOptions[0];
+    const posMode = (posSel && posSel.dataset && posSel.dataset.mode) || 'telehealth';
     const icd = $('icd').value.trim();
+
+    // Hide/show telehealth block in form + preview based on POS
+    document.getElementById('teleField').style.display = posMode === 'office' ? 'none' : '';
+    document.getElementById('pv-tele-h').style.display = posMode === 'office' ? 'none' : '';
+    document.getElementById('pv-telehealth').style.display = posMode === 'office' ? 'none' : '';
     const start = $('startTime').value;
     const stop = $('stopTime').value;
     let total = $('totalMin').value.trim();
@@ -359,7 +366,7 @@ function renderApp() {
 
     setText('pv-name', name);
     setText('pv-dos', fmtDate(dos));
-    setText('pv-telehealth', tele);
+    if (posMode !== 'office') setText('pv-telehealth', tele);
     $('pv-body').textContent = body || '(paste note in the field on the left)';
 
     const cptCombined = addon ? (cpt + ' + ' + addon) : cpt;
@@ -406,6 +413,7 @@ function renderApp() {
     const cpt = $('cpt').value.trim();
     const addon = $('addon').value.trim();
     const pos = $('pos').value;
+    const posMode = $('pos').selectedOptions[0].dataset.mode || 'telehealth';
     const icd = $('icd').value.trim();
     const start = $('startTime').value;
     const stop = $('stopTime').value;
@@ -420,9 +428,11 @@ function renderApp() {
     lines.push('DATE OF SERVICE:   ' + dos);
     lines.push('PROVIDER:          Jennifer L. Bowen, DNP, PMHNP-BC  (NPI 1366827404)');
     lines.push('');
-    lines.push('TELEHEALTH ATTESTATION');
-    lines.push(tele);
-    lines.push('');
+    if (posMode !== 'office') {
+      lines.push('TELEHEALTH ATTESTATION');
+      lines.push(tele);
+      lines.push('');
+    }
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     lines.push('');
     lines.push(body);
