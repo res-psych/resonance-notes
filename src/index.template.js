@@ -67,7 +67,7 @@ function renderLogin(error, next) {
        padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
 </style></head>
 <body><div class="card">
-  <img class="logo" src="data:image/png;base64,${LOGO_B64}" alt="Resonance Psychiatry">
+  <img class="logo" src="${LOGO_B64}" alt="Resonance Psychiatry">
   <h1>Note Formatter</h1>
   <div class="sub">Sign in</div>
   ${error ? `<div class="err">${error}</div>` : ""}
@@ -183,7 +183,7 @@ function renderApp() {
 
 <div class="topbar">
   <div class="brand">
-    <img src="data:image/png;base64,${LOGO_B64}" alt="Resonance Psychiatry">
+    <img src="${LOGO_B64}" alt="Resonance Psychiatry">
     <span class="title">Note Formatter</span>
   </div>
   <a href="/logout">Sign out</a>
@@ -280,7 +280,7 @@ function renderApp() {
   <div class="preview-wrap">
     <div class="preview" id="preview">
       <div class="letterhead">
-        <img src="data:image/png;base64,${LOGO_B64}" alt="Resonance Psychiatry">
+        <img src="${LOGO_B64}" alt="Resonance Psychiatry">
         <div class="provider">
           <div class="name">Jennifer L. Bowen, DNP, PMHNP-BC</div>
           <div>NPI: 1366827404</div>
@@ -311,7 +311,7 @@ function renderApp() {
       </div>
 
       <div class="sig-block">
-        <img src="data:image/png;base64,${SIGNATURE_B64}" alt="Signature">
+        <img src="${SIGNATURE_B64}" alt="Signature">
         <div class="sig-line">Jennifer L. Bowen, DNP, PMHNP-BC</div>
         <div class="sig-cred">NPI 1366827404 · Resonance Psychiatry</div>
         <div class="sig-cred" id="pv-signdate">—</div>
