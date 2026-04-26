@@ -210,6 +210,19 @@ function renderApp() {
       </div>
     </div>
 
+    <div class="field row">
+      <div>
+        <label for="draftCpt">Psychotherapy CPT</label>
+        <select id="draftCpt">
+          <option value="90833" selected>90833 (16-37 min)</option>
+          <option value="90836">90836 (38-52 min)</option>
+          <option value="90838">90838 (53+ min)</option>
+          <option value="">None / E&amp;M only</option>
+        </select>
+      </div>
+      <div></div>
+    </div>
+
     <div class="btn-row" style="margin-bottom:8px">
       <button class="btn btn-primary" id="draftBtn" type="button" disabled>Draft note from transcript</button>
     </div>
@@ -551,7 +564,7 @@ function renderApp() {
       const r = await fetch('/api/draft', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ id: sid }),
+        body: JSON.stringify({ id: sid, cpt: $('draftCpt').value }),
       });
       if (!r.ok) {
         const t = await r.text();
@@ -853,29 +866,86 @@ export default {
         if (transcriptText.length > MAX) {
           transcriptText = transcriptText.slice(0, MAX) + "\n...[truncated]";
         }
-        const system = `You are a psychiatric nurse practitioner's clinical scribe. You draft concise, professional follow-up psychiatric progress notes for a Carepatron EHR based on raw session transcripts. Write in third person, clinical tone. Do not invent facts. If something was not discussed, omit or write "Not discussed." Use the patient's words sparingly in quotes when clinically meaningful.`;
-        const user = `Draft a psychiatric progress note from the transcript below. Use this exact section structure with these headers, each on its own line:
+        const cpt = (body.cpt || "").trim(); // optional: 90833 | 90836 | 90838
+        const system = `You are documenting psychiatric care for Jennifer Bowen, DNP, PMHNP-BC, founder of Resonance Psychiatry LLC. You generate de-identified psychiatric documentation from session transcripts for telehealth patients in New Jersey, written into Carepatron (HIPAA-compliant EHR). All output must be clinically accurate, concise but complete, payer-friendly, audit-resistant, written in professional psychiatric language, telehealth-appropriate for NJ, and aligned with DSM-5-TR and current standards of care.
 
+WRITE LIKE AN EXPERIENCED PSYCHIATRIC NP — not a template. Show clinical reasoning implicitly. Reflect symptom trajectory (improving, worsening, fluctuating, partial response). Subtly justify medication decisions even when continuing. Tie symptoms to functional impairment (work, parenting, relationships, executive function) so medical necessity is obvious. Group symptoms meaningfully — mood, anxiety, sleep, cognition, functioning — never robotic dumps. Only include clinically relevant negatives. Risk assessment must be clean and defensible (SI/HI, self-harm, psychosis if relevant, protective factors when appropriate); avoid vague "stable" without context. Medication notes must show thinking ("continues to tolerate well", "partial response", "targeting residual symptoms of X", "no adverse effects reported"); if no changes, justify why. MSE must be purposeful, telehealth-realistic, and align with the HPI — only document what is observable via video. Therapy notes must feel specific: what was actually discussed, what intervention was used, why, and how the patient responded — never generic "supportive therapy provided" filler.
+
+STRICTLY DO NOT FABRICATE: names, DOB, identifiers, symptoms not stated, risk that was not assessed, medication changes, or therapy duration/content. If information is missing, write "not reported" or omit appropriately. Use de-identified placeholders only.
+
+SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning. Psychotherapy (9083X) = emotional/behavioral work. Do not blur them. The note should sound like one clinician wrote it — no internal contradictions, no copy-paste tone shifts, no generic AI phrasing.`;
+
+        const cptInstruction = cpt
+          ? `The psychotherapy add-on CPT code for this visit is ${cpt}. Use the time range that matches: 90833 = 16-37 min, 90836 = 38-52 min, 90838 = 53+ min. Document therapy duration consistent with that range.`
+          : `The psychotherapy add-on CPT code was not specified — use 90833 as a default and note the therapy duration as approximately 16-37 minutes.`;
+
+        const user = `Generate TWO outputs from the transcript below:
+
+=== OUTPUT 1: E/M PSYCHIATRIC FOLLOW-UP NOTE (99214) ===
+
+Use these section headers exactly, each on its own line:
+
+Telehealth Statement:
 Chief Complaint:
-Interim History:
-Medications Reviewed:
+HPI:
+Current Symptoms:
+Medications:
+Psychosocial / Functioning:
+Review of Systems:
 Mental Status Exam:
+Risk Assessment:
 Assessment:
 Plan:
-Risk Assessment:
+Billing:
 
-Guidelines:
-- Chief Complaint: one sentence in patient's words if available.
-- Interim History: 3-6 sentences covering symptoms, sleep, appetite, mood, anxiety, stressors, substance use, side effects since last visit.
-- Medications Reviewed: bullet list of any medications discussed with adherence/efficacy/side effects.
-- Mental Status Exam: brief paragraph (appearance, behavior, speech, mood, affect, thought process, thought content, perception, cognition, insight, judgment). If not directly observed in transcript, infer reasonably from interaction (e.g., "linear and goal-directed", "euthymic") and note "per video session."
-- Assessment: 2-4 sentences with diagnostic impression and clinical reasoning.
-- Plan: bullet list — medication changes, follow-up interval, labs, referrals, psychotherapy recommendations, safety planning if applicable.
-- Risk Assessment: one sentence on suicidal/homicidal ideation, plan, intent. Default to "Patient denies SI/HI, plan, or intent. No acute safety concerns at this time." unless transcript indicates otherwise.
+Guidelines for the E/M note:
+- Telehealth Statement: state platform Carepatron (HIPAA-compliant), verbal consent obtained, secure video session, patient location [insert], provider location [insert], emergency plan 911/988 reviewed, limitations of virtual exam noted, technical issues none unless transcript indicates otherwise.
+- Chief Complaint: one concise line in patient's words if available.
+- HPI: narrative paragraph showing symptom trajectory and context since last visit. Do not list — write like a clinician.
+- Current Symptoms: grouped meaningfully (mood, anxiety, sleep, cognition, functioning). No robotic dumps. Only relevant negatives.
+- Medications: each med with adherence, response, tolerability, side effects, and rationale. If continuing, justify why (e.g., "continues to tolerate well, targeting residual anxiety").
+- Psychosocial / Functioning: stressors and functional impact (work, parenting, relationships, executive function) — this anchors medical necessity.
+- Review of Systems: abbreviated, psych-focused, telehealth-appropriate.
+- Mental Status Exam: telehealth-appropriate paragraph (appearance, behavior, speech, mood, affect, thought process, thought content, perception, cognition, insight, judgment). Mood and affect must align with HPI. Only observable behaviors via video.
+- Risk Assessment: SI/HI presence/absence, self-harm risk, psychosis if relevant, protective factors when appropriate. Defensible language, not vague "stable."
+- Assessment: DSM-5-TR diagnoses with ICD-10 codes. Show clinical reasoning implicitly.
+- Plan: medications (with rationale even if continuing), therapy recommendation, patient education, safety plan, follow-up interval.
+- Billing: CPT 99214 + ${cpt || "9083X"}, Modifier 95, POS 02.
 
-Do not include a header, patient name, date, signature, or billing block — those are added separately. Output only the note body text. Do not use markdown bold/italic.
+=== OUTPUT 2: PSYCHOTHERAPY NOTE (${cpt || "9083X"}) ===
 
-TRANSCRIPT:
+${cptInstruction}
+
+Use these section headers exactly, each on its own line:
+
+CPT + Duration:
+Session Focus:
+Interventions Used:
+Rationale for Interventions:
+Patient Response:
+Progress Toward Goals:
+Medical Necessity:
+Risk / Safety:
+Plan:
+
+Guidelines for the psychotherapy note:
+- CPT + Duration: state code and minutes consistent with code range above.
+- Session Focus: specific themes actually discussed in the transcript — never generic.
+- Interventions Used: name them (CBT, supportive, motivational interviewing, behavioral activation, psychoeducation, etc.).
+- Rationale for Interventions: why these were chosen for this patient today.
+- Patient Response: specific to what happened in session — engagement, insight, resistance, breakthroughs.
+- Progress Toward Goals: tie back to ongoing treatment goals.
+- Medical Necessity: link symptoms → impairment → need for therapy.
+- Risk / Safety: SI/HI status during therapy portion, any safety planning addressed.
+- Plan: therapy continuation, frequency, focus for next session.
+
+FORMATTING RULES:
+- Output BOTH sections in plain text, separated by a line of "=====".
+- Do not use markdown bold/italic. Do not include a letterhead, patient name, date, or signature — those are added separately.
+- Use de-identified placeholders [insert] where identifiers would go. Never invent identifiers.
+- If something was not discussed, write "not reported" or omit appropriately.
+
+TRANSCRIPT (de-identified clinical content):
 ${transcriptText}`;
         const note = await openaiChat(env, [
           { role: "system", content: system },
