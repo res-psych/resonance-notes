@@ -913,7 +913,8 @@ export default {
           transcriptText = transcriptText.slice(0, MAX) + "\n...[truncated]";
         }
         const cpt = (body.cpt || "").trim(); // optional: 90833 | 90836 | 90838
-        const system = `You are documenting psychiatric care for Jennifer Bowen, DNP, PMHNP-BC, founder of Resonance Psychiatry LLC. You generate de-identified psychiatric documentation from session transcripts for telehealth patients in New Jersey, written into Carepatron (HIPAA-compliant EHR). All output must be clinically accurate, concise but complete, payer-friendly, audit-resistant, written in professional psychiatric language, telehealth-appropriate for NJ, and aligned with DSM-5-TR and current standards of care.
+        const visitDate = t.date ? new Date(Number(t.date)).toISOString().slice(0, 10) : "[insert]";
+        const system = `You are documenting psychiatric care for Jennifer L. Bowen, DNP, PMHNP-BC, founder of Resonance Psychiatry. You generate de-identified psychiatric documentation from session transcripts for telehealth patients in New Jersey. The video platform is doxy.me (HIPAA-compliant); the EHR is Carepatron. All output must be clinically accurate, concise but complete, payer-friendly, audit-resistant, written in professional psychiatric language, telehealth-appropriate for NJ, and aligned with DSM-5-TR and current standards of care.
 
 WRITE LIKE AN EXPERIENCED PSYCHIATRIC NP — not a template. Show clinical reasoning implicitly. Reflect symptom trajectory (improving, worsening, fluctuating, partial response). Subtly justify medication decisions even when continuing. Tie symptoms to functional impairment (work, parenting, relationships, executive function) so medical necessity is obvious. Group symptoms meaningfully — mood, anxiety, sleep, cognition, functioning — never robotic dumps. Only include clinically relevant negatives. Risk assessment must be clean and defensible (SI/HI, self-harm, psychosis if relevant, protective factors when appropriate); avoid vague "stable" without context. Medication notes must show thinking ("continues to tolerate well", "partial response", "targeting residual symptoms of X", "no adverse effects reported"); if no changes, justify why. MSE must be purposeful, telehealth-realistic, and align with the HPI — only document what is observable via video. Therapy notes must feel specific: what was actually discussed, what intervention was used, why, and how the patient responded — never generic "supportive therapy provided" filler.
 
@@ -921,112 +922,215 @@ STRICTLY DO NOT FABRICATE: names, DOB, identifiers, symptoms not stated, risk th
 
 SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning. Psychotherapy (9083X) = emotional/behavioral work. Do not blur them. The note should sound like one clinician wrote it — no internal contradictions, no copy-paste tone shifts, no generic AI phrasing.`;
 
-        const cptInstruction = cpt
-          ? `The psychotherapy add-on CPT code for this visit is ${cpt}. Use the time range that matches: 90833 = 16-37 min, 90836 = 38-52 min, 90838 = 53+ min. Document therapy duration consistent with that range.`
-          : `The psychotherapy add-on CPT code was not specified — use 90833 as a default and note the therapy duration as approximately 16-37 minutes.`;
+        let therapyDuration, therapyCpt;
+        if (cpt === "90838") { therapyDuration = "53+ minutes"; therapyCpt = "90838"; }
+        else if (cpt === "90836") { therapyDuration = "38–52 minutes"; therapyCpt = "90836"; }
+        else if (cpt === "90833") { therapyDuration = "16–37 minutes"; therapyCpt = "90833"; }
+        else { therapyDuration = "16–37 minutes"; therapyCpt = "90833"; }
 
-        const user = `Before writing anything, FIRST read the transcript carefully and silently extract every clinical detail mentioned. Do not output this extraction — use it internally. Make sure you capture:
-- Every medication mentioned (name, dose, frequency, adherence, response, side effects, any plans to start/stop/titrate)
-- Every supplement, vitamin, OTC product, or non-prescription substance mentioned (including whether the patient stopped, ran out, or is no longer taking it — e.g., "stopped vitamin D supplement after a month")
-- Every lab value, lab result, or lab order mentioned (e.g., "vitamin D was low", "TSH normal", "new lab order sent") — include the trend and what is being re-checked
-- Every symptom, change in symptom, sleep/appetite/energy detail, side effect, and functional impact (work, parenting, relationships, executive function)
-- Every stressor, life event, and contextual detail
-- Every risk-relevant statement (SI, HI, self-harm, hopelessness, substance use, sleep changes that imply risk)
-- Every patient-education topic that came up (medication risks, side effects, lifestyle, sleep hygiene, lab follow-up, etc.)
-- Every plan/follow-up item discussed
+        const user = `Read the transcript carefully and silently extract EVERY clinical detail before writing. Do not output the extraction. Capture:
+- Every prescribed medication (name, dose, frequency, adherence, response, side effects, any titration/start/stop)
+- Every supplement, vitamin, or OTC mentioned, including any LAPSE (e.g., "stopped vitamin D after one month") — these are routinely missed and must be captured
+- Every lab value, lab result, or lab order mentioned with trend (↑/↓/WNL), what is being rechecked, and why
+- Every symptom and change since last visit, grouped meaningfully (mood, anxiety, sleep, cognition, energy, functioning)
+- Every stressor and functional impact (work, parenting, relationships, executive function)
+- Every risk-relevant statement (SI, HI, self-harm, hopelessness, substance use)
+- Every patient-education topic that came up (med risks, side effects, sleep hygiene, lab follow-up, breathing exercises, crisis resources)
+- Every therapy theme actually discussed (specific events, relational dynamics, trauma triggers, perfectionism, etc.)
+- Every plan / follow-up item, referral, or care-coordination task
 
-If the patient mentioned a lab abnormality (e.g., low vitamin D) AND a treatment lapse (e.g., stopped supplement), you MUST include BOTH in the note and reflect the plan to recheck the lab and resume/adjust treatment.
+If the transcript contains a lab abnormality AND a treatment lapse (e.g., "vitamin D was low and patient stopped supplement"), you MUST surface BOTH and reflect the plan to recheck and resume/adjust. Missing this is a documentation failure.
 
-Nothing clinically relevant from the transcript may be omitted. Missing the vitamin D / supplement / lab recheck pattern is a documentation failure.
+# OUTPUT FORMAT
 
-Now generate TWO outputs from the transcript below. You MUST use these exact delimiter lines, each on its own line with nothing else on that line, so the outputs can be machine-split:
+Generate TWO outputs. Wrap each in delimiter lines exactly as shown, on their own lines, with nothing else on the delimiter lines. Do NOT include any preamble or text outside the delimiters.
 
 === EM_NOTE_START ===
-[full E/M note here]
+[full E/M note]
 === EM_NOTE_END ===
 === THERAPY_NOTE_START ===
-[full psychotherapy note here]
+[full psychotherapy note]
 === THERAPY_NOTE_END ===
 
-Do NOT include any preamble, explanation, or trailing text outside these delimiters.
+# OUTPUT 1: E/M NOTE — 99214 (TELEMEDICINE)
 
-=== OUTPUT 1: E/M PSYCHIATRIC FOLLOW-UP NOTE (99214) ===
+Match this exact structure and section headers (use the same wording, capitalization, and order as below). Where placeholders like [insert] appear, leave them so Jen can fill them in. Use plain text — no markdown bold or italic.
 
-Use these section headers exactly, each on its own line, IN THIS ORDER. Every section is REQUIRED — never omit any section. If a section truly has no content, write "Not reported this visit" rather than skipping it.
+E/M Note — 99214 (Telemedicine)
+Patient: [insert]
+Date of Visit: ${visitDate}
+Provider: Jennifer L. Bowen, DNP, PMHNP-BC (NPI 1366827404)
+Location: Telehealth via HIPAA-compliant platform (doxy.me)
+Provider Location: Home office in NJ
+Patient Location: Home in NJ
+POS: 02
+CPT: 99214
+Modifier: 95
 
-Telehealth Statement:
-Chief Complaint:
-HPI:
-Interval History:
-Current Symptoms:
-Medications:
-Supplements / OTC:
-Labs Reviewed:
-Psychosocial / Functioning:
-Review of Systems:
-Mental Status Exam:
-Risk Assessment:
-Assessment:
-Medical Decision Making (MDM):
-Plan:
-Patient Education:
-Follow-up:
-Billing:
+Telehealth Compliance Statement
+[One paragraph: visit conducted via secure HIPAA-compliant telehealth video; identity verified; verbal consent obtained; technical issues (none, or describe); physical exam deferred due to virtual format; emergency plan reviewed (911 for medical emergencies; 988 for mental health crises); patient verbalized understanding.]
 
-Guidelines for the E/M note:
-- Telehealth Statement: state platform Carepatron (HIPAA-compliant), verbal consent obtained, secure video session, patient location [insert], provider location [insert], emergency plan 911/988 reviewed, limitations of virtual exam noted, technical issues none unless transcript indicates otherwise.
-- Chief Complaint: one concise line in patient's words if available.
-- HPI: narrative paragraph showing symptom trajectory and context since last visit. Do not list — write like a clinician.
-- Interval History: any new events, hospitalizations, ER visits, life changes, new medical diagnoses, new providers since last visit.
-- Current Symptoms: grouped meaningfully (mood, anxiety, sleep, cognition, functioning). No robotic dumps. Only relevant negatives.
-- Medications: each prescribed med with name, dose, frequency, adherence, response, tolerability, side effects, and rationale. If continuing, justify why (e.g., "continues to tolerate well, targeting residual anxiety"). If a med was missed, stopped, or changed, document it explicitly.
-- Supplements / OTC: every non-prescription supplement, vitamin, or OTC mentioned, including adherence and any lapses (e.g., "patient stopped vitamin D supplement after one month"). This section is mandatory if any supplement was discussed.
-- Labs Reviewed: list every lab value or lab-related discussion from the transcript with the abnormality, trend, and clinical interpretation. State explicitly what is being re-checked and why. If a new lab order was sent, document it here. (Example: "Vitamin D was low on prior testing; patient discontinued supplementation after one month. New 25-OH vitamin D level ordered to reassess; will resume cholecalciferol if level remains insufficient.") If no labs discussed, write "None reviewed this visit."
-- Psychosocial / Functioning: stressors and functional impact (work, parenting, relationships, executive function) — this anchors medical necessity.
-- Review of Systems: abbreviated, psych-focused, telehealth-appropriate.
-- Mental Status Exam: telehealth-appropriate paragraph (appearance, behavior, speech, mood, affect, thought process, thought content, perception, cognition, insight, judgment). Mood and affect must align with HPI. Only observable behaviors via video.
-- Risk Assessment: REQUIRED. Always address SI (presence/absence, ideation/plan/intent/means), HI, self-harm risk, psychosis if relevant, substance use risk if relevant, and protective factors. Use defensible language, not vague "stable." Default if denied: "Patient denies current suicidal or homicidal ideation, plan, or intent. Denies self-harm urges. No psychotic symptoms elicited. Protective factors include [insert from transcript or write 'engagement in treatment, future-oriented thinking, support system']."
-- Assessment: DSM-5-TR diagnoses with ICD-10 codes, each on its own line. Show clinical reasoning implicitly. Include relevant medical comorbidities affecting psychiatric care (e.g., "Vitamin D deficiency, in follow-up—may contribute to mood/fatigue").
-- Medical Decision Making (MDM): explicitly address the three 99214 elements: (1) Number and complexity of problems addressed today (list them, note chronicity, stability, and whether worsening/improving); (2) Amount/complexity of data reviewed (prior labs, new labs ordered, prior records, collateral, medication reconciliation); (3) Risk of complications/morbidity from management decisions (medication risks, lab follow-up, untreated symptoms). This section is what justifies 99214 — make the complexity visible.
-- Plan: NUMBERED list. Every active problem from the Assessment gets its own numbered item. Each item must include: specific action (med name + dose + frequency + change/continue + rationale, OR lab name + reason ordered, OR referral + reason), and any patient-specific instructions. Be detailed, not generic. Include lab follow-up plans explicitly (e.g., "3. Vitamin D deficiency — 25-OH vitamin D level ordered today; will resume cholecalciferol 2000 IU daily if level <30 ng/mL; recheck in 8-12 weeks.").
-- Patient Education: REQUIRED. Bullet or numbered list of specific topics discussed this visit (medication risks/benefits/side effects, importance of adherence, lab follow-up rationale, sleep hygiene, lifestyle factors, when to call the office, crisis resources). Tie to what was actually in the transcript.
-- Follow-up: specific interval (e.g., "4-6 weeks") and what will be reassessed at that visit. Include lab follow-up timing.
-- Billing: CPT 99214 + ${cpt || "9083X"}, Modifier 95, POS 02. Include a one-line statement that the visit met 99214 criteria based on MDM complexity (problems addressed + data reviewed + risk).
+Subjective
+Chief Complaint (CC): [one line, in patient's words if available]
 
-INTERNAL CHECK before producing output: Have you included every supplement, lab, dose change, and treatment lapse from the transcript? Is the Plan numbered with one item per active problem? Is Patient Education present and specific? Is the Risk Assessment present with explicit SI/HI language? If any answer is no, fix it before outputting.
+History of Present Illness (HPI):
+[Narrative paragraph(s). Show symptom trajectory and context since last visit. Tie symptoms to functional impact. Include adherence to medications and a denial-of-SI/HI line near the end if appropriate. Write like a clinician, not a list.]
 
-=== OUTPUT 2: PSYCHOTHERAPY NOTE (${cpt || "9083X"}) ===
+Medication Adherence / Effects:
+• [Med name + dose + frequency — adherence, tolerability, response, rationale. One bullet per medication.]
+• [If a dose change is happening this visit: name it and state the plan, e.g., "Plan: Increase Prozac to 40 mg daily; monitor 2–3 weeks."]
 
-${cptInstruction}
+Supplements / OTC (include only if any are mentioned):
+• [Each supplement with adherence and any lapse, e.g., "Vitamin D — patient stopped supplement after one month; not currently taking."]
 
-Use these section headers exactly, each on its own line:
+Review of Systems (Abbreviated):
+• Psychiatric: [findings]
+• Neurologic: [findings or denies]
+• Cardiovascular: [findings or denies]
+• Constitutional: [findings or denies]
+• GI/Endocrine: [findings or denies]
 
-CPT + Duration:
-Session Focus:
-Interventions Used:
-Rationale for Interventions:
-Patient Response:
-Progress Toward Goals:
-Medical Necessity:
-Risk / Safety:
-Plan:
+Relevant Psychosocial Updates:
+[Narrative or bullets describing stressors and functional impact — work, family, relationships, finances, caregiving.]
 
-Guidelines for the psychotherapy note:
-- CPT + Duration: state code and minutes consistent with code range above.
-- Session Focus: specific themes actually discussed in the transcript — never generic.
-- Interventions Used: name them (CBT, supportive, motivational interviewing, behavioral activation, psychoeducation, etc.).
-- Rationale for Interventions: why these were chosen for this patient today.
-- Patient Response: specific to what happened in session — engagement, insight, resistance, breakthroughs.
-- Progress Toward Goals: tie back to ongoing treatment goals.
-- Medical Necessity: link symptoms → impairment → need for therapy.
-- Risk / Safety: SI/HI status during therapy portion, any safety planning addressed.
-- Plan: therapy continuation, frequency, focus for next session.
+Objective
+Mental Status Exam (MSE):
+Appearance: [...]
+Behavior: [...]
+Speech: [...]
+Mood: "[patient's words]"
+Affect: [...]
+Thought Process: [...]
+Thought Content: No SI/HI, no psychosis [or describe findings]
+Cognition: Alert and oriented ×4
+Insight/Judgment: [...]
+Telehealth-specific observation: [stable connection, engagement, etc.]
 
-FORMATTING RULES:
-- Wrap each note in its delimiter pair as instructed above (=== EM_NOTE_START === ... === EM_NOTE_END === then === THERAPY_NOTE_START === ... === THERAPY_NOTE_END ===).
-- Do not use markdown bold/italic. Do not include a letterhead, patient name, date, or signature — those are added separately.
-- Use de-identified placeholders [insert] where identifiers would go. Never invent identifiers.
-- If something was not discussed, write "not reported" or omit appropriately.
+Labs/Studies: [Each lab with value, arrow (↑/↓/WNL), and reference range if available, OR "None reviewed today" / "Pending". Always surface abnormalities discussed in the transcript with what's being rechecked.]
+
+Risk Assessment
+• Acute risk: [Low/Moderate/High] — [SI/HI status, intent/plan/means]
+• Chronic/static factors: [history]
+• Protective factors: [from transcript: insight, engagement in care, support system, employment, pets, etc.]
+• Access to lethal means: [discussed/not discussed; concerns]
+• Plan: Continue routine risk monitoring; safety plan reviewed (911/988).
+
+Current Functioning
+[1–3 sentences on day-to-day functioning, work, relationships.]
+
+Medication Review
+• [Each med — continue/change with rationale, tolerability, monitoring]
+• Education: [what was reinforced]
+• Monitoring: [what to watch for]
+
+Assessment / Diagnoses (DSM-5-TR / ICD-10-CM)
+1. [Code — Diagnosis name (qualifier if relevant, e.g., "recurrent, moderate")]
+2. [Code — Diagnosis]
+3. [Z-codes for psychosocial/occupational stressors as appropriate, e.g., Z56.9 — Occupational stress]
+[Include relevant medical comorbidities being co-managed, e.g., E55.9 — Vitamin D deficiency]
+
+Rationale: [1–3 sentences of clinical reasoning explaining the picture today.]
+
+Plan
+1) [Top-level category — e.g., Medication Management]
+   • [Specific action with med name + dose + change/continue + rationale]
+   • [Monitoring]
+2) [Top-level category — e.g., Diagnostics / Care Coordination]
+   • [Lab orders, referrals, follow-ups with other providers]
+3) [Top-level category — e.g., Patient Education / Lifestyle]
+   • [Specific topics discussed: breathing techniques, sleep, hydration, etc.]
+4) [Top-level category — e.g., Therapy Integration]
+   • [Therapy modality, referrals, focus areas]
+5) Follow-Up
+   • [Specific interval, e.g., "2 weeks" or "2–3 weeks or sooner if symptoms worsen"]
+   • Continue supportive therapy and medication monitoring.
+   • Emergency plan reviewed (911/988).
+
+Patient Understanding & Agreement
+Patient verbalized understanding of plan, follow-up, and safety measures.
+
+Medical Decision Making (MDM) — Moderate Complexity (99214)
+• Problems: [number/complexity of problems addressed today — chronic conditions, exacerbations, new issues]
+• Data: [labs reviewed, labs ordered, prior records, coordination with outside providers]
+• Risk: [prescription drug management, diagnostic coordination, untreated symptom risk]
+
+CPT Code Justification
+• 99214: [Moderate MDM; chronic illness with exacerbation; medication management; diagnostic coordination; risk counseling via telehealth.]
+${cpt ? `• ${cpt}: [Psychotherapy ${therapyDuration}, see separate note.]
+` : ''}
+Action Items
+• [Specific tasks for Jen or staff: send order, verify referral, confirm scheduling, etc.]
+
+Condensed, Insurance-Friendly Treatment Plan
+• Problem/Goal: [overall framing]
+• Objectives (4–6 weeks):
+   • [Measurable objective 1]
+   • [Measurable objective 2]
+   • [Measurable objective 3]
+• Interventions: [Medication management, psychoeducation, stress-management strategies, therapy, care coordination as applicable]
+• Outcome Measures: [Self-rated improvement, adherence verified, functional milestones]
+• Follow-up: [interval] (telehealth). Safety plan reviewed (911/988).
+
+Provider: Jennifer L. Bowen, DNP, PMHNP-BC
+State of Practice: New Jersey (Telepsychiatry)
+
+INTERNAL CHECK before outputting Output 1:
+- Every supplement, lab, dose change, and treatment lapse from the transcript captured?
+- Plan has numbered top-level categories with sub-bullets?
+- Patient Education is specific and tied to what was actually discussed?
+- Risk Assessment has all 5 sub-bullets present?
+- MDM has Problems / Data / Risk explicitly?
+If any answer is no, fix before outputting.
+
+# OUTPUT 2: PSYCHOTHERAPY NOTE — ${therapyCpt}
+
+Match this exact structure. Plain text — no markdown.
+
+Psychotherapy Note — ${therapyCpt}
+Patient: [insert]
+Date of Visit: ${visitDate}
+Provider: Jennifer Bowen, DNP, PMHNP-BC
+CPT: ${therapyCpt}
+Modifier: 95
+Format: Telehealth
+
+Psychotherapy Time
+${therapyDuration} of psychotherapy were provided in addition to E/M services.
+
+Modality
+[One sentence naming the modality, e.g., "Supportive psychotherapy with trauma-informed, insight-oriented, and CBT-informed interventions."]
+
+Themes / Session Focus
+[Narrative paragraph(s) describing what was actually discussed in this session. Be specific to the transcript: name the actual stressors, relational dynamics, events, and themes the patient brought up. Avoid generic language like "discussed stressors." Anchor to specifics.]
+
+Interventions Used
+• [Specific intervention 1 — e.g., "Trauma-informed exploration of triggers related to being talked over / invalidated"]
+• [Specific intervention 2]
+• [3–7 bullets total. Be specific. Examples: Supportive therapy; Cognitive reframing; Validation of caregiver burden; Psychoeducation regarding stress reactivity; Reinforcement of boundaries.]
+
+Patient Response
+[Paragraph describing engagement, insight, emotional presence, breakthroughs, resistance — specific to what happened in session. Note safety status. Note affect appropriateness.]
+
+Progress
+[Paragraph describing trajectory toward treatment goals. Note both progress and limiting factors honestly.]
+
+Plan
+• [Continue modality, e.g., "Continue supportive/trauma-informed psychotherapy"]
+• [Specific focus areas for ongoing work]
+• [Coping support themes]
+• Follow up in [interval]
+
+INTERNAL CHECK before outputting Output 2:
+- Themes / Session Focus is specific to actual transcript content, not generic?
+- Interventions are named and specific (3–7 bullets)?
+- Patient Response is paragraph-form and tied to actual session events?
+- Plan reflects continuation of work seen in transcript?
+If any answer is no, fix before outputting.
+
+# DE-IDENTIFICATION
+- Use [insert] where identifiers would go.
+- Do NOT invent names, DOBs, addresses, MRNs.
+- Patient first name from transcript context is fine if used in HPI/themes; do not invent a last name.
 
 TRANSCRIPT (de-identified clinical content):
 ${transcriptText}`;
