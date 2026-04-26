@@ -246,10 +246,23 @@ function renderApp() {
       <textarea id="telehealth" rows="4">${DEFAULT_TELEHEALTH}</textarea>
     </div>
 
-    <h2 style="margin-top:24px">Note body</h2>
+    <h2 style="margin-top:24px">E/M note (99214)</h2>
     <div class="field">
-      <textarea id="noteBody" placeholder="Paste your note here…"></textarea>
-      <div class="hint">Pasted text preserves line breaks. Use blank lines between sections.</div>
+      <textarea id="noteBody" placeholder="Paste or draft the E/M note here…"></textarea>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-secondary" id="copyEmBtn" type="button">Copy E/M note</button>
+      </div>
+      <div id="copyEmStatus" class="hint" style="min-height:18px"></div>
+    </div>
+
+    <h2 style="margin-top:24px">Therapy note (90833 / 90836 / 90838)</h2>
+    <div class="field">
+      <textarea id="therapyBody" placeholder="Paste or draft the psychotherapy note here…" style="min-height:220px;font-size:14px;line-height:1.55"></textarea>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-secondary" id="copyTherapyBtn" type="button">Copy therapy note</button>
+      </div>
+      <div id="copyTherapyStatus" class="hint" style="min-height:18px"></div>
+      <div class="hint" style="margin-top:6px">The Draft button fills both boxes. Copy each separately into Carepatron.</div>
     </div>
 
     <h2 style="margin-top:24px">Billing</h2>
@@ -421,7 +434,7 @@ function renderApp() {
   }
 
   // Bind all inputs
-  ['patientName','dos','telehealth','noteBody','cpt','addon','pos','icd','startTime','stopTime','totalMin']
+  ['patientName','dos','telehealth','noteBody','therapyBody','cpt','addon','pos','icd','startTime','stopTime','totalMin']
     .forEach(id => {
       const el = $(id);
       if (el) el.addEventListener('input', update);
@@ -571,9 +584,10 @@ function renderApp() {
         throw new Error(t || ('HTTP ' + r.status));
       }
       const d = await r.json();
-      $('noteBody').value = d.note || '';
+      $('noteBody').value = d.emNote || '';
+      $('therapyBody').value = d.therapyNote || '';
       update();
-      setStatus('Draft ready. Review and edit before copying.', 'ok');
+      setStatus('Draft ready. Review and edit each note before copying.', 'ok');
     } catch (e) {
       setStatus('Draft failed: ' + (e.message || e), 'error');
     } finally {
@@ -644,7 +658,38 @@ function renderApp() {
     return lines.join('\\n');
   }
 
-  // Copy to clipboard
+  // Copy E/M note only (just the note body, no letterhead/billing wrapper)
+  async function copyToClipboard(text, btn, statusEl) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    if (statusEl) statusEl.textContent = 'Copied to clipboard. Paste into Carepatron.';
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); if (statusEl) statusEl.textContent = ''; }, 2500);
+  }
+
+  $('copyEmBtn').addEventListener('click', () => {
+    const txt = $('noteBody').value.trim();
+    if (!txt) { $('copyEmStatus').textContent = 'E/M note is empty.'; return; }
+    copyToClipboard(txt, $('copyEmBtn'), $('copyEmStatus'));
+  });
+
+  $('copyTherapyBtn').addEventListener('click', () => {
+    const txt = $('therapyBody').value.trim();
+    if (!txt) { $('copyTherapyStatus').textContent = 'Therapy note is empty.'; return; }
+    copyToClipboard(txt, $('copyTherapyBtn'), $('copyTherapyStatus'));
+  });
+
+  // Copy full formatted note (letterhead + billing block) — legacy bottom button
   $('copyBtn').addEventListener('click', async () => {
     const btn = $('copyBtn');
     const orig = btn.textContent;
@@ -726,6 +771,7 @@ async function openaiChat(env, messages, model) {
     body: JSON.stringify({
       model: model || "gpt-4o",
       temperature: 0.2,
+      max_tokens: 4096,
       messages,
     }),
   });
@@ -879,38 +925,75 @@ SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning
           ? `The psychotherapy add-on CPT code for this visit is ${cpt}. Use the time range that matches: 90833 = 16-37 min, 90836 = 38-52 min, 90838 = 53+ min. Document therapy duration consistent with that range.`
           : `The psychotherapy add-on CPT code was not specified — use 90833 as a default and note the therapy duration as approximately 16-37 minutes.`;
 
-        const user = `Generate TWO outputs from the transcript below:
+        const user = `Before writing anything, FIRST read the transcript carefully and silently extract every clinical detail mentioned. Do not output this extraction — use it internally. Make sure you capture:
+- Every medication mentioned (name, dose, frequency, adherence, response, side effects, any plans to start/stop/titrate)
+- Every supplement, vitamin, OTC product, or non-prescription substance mentioned (including whether the patient stopped, ran out, or is no longer taking it — e.g., "stopped vitamin D supplement after a month")
+- Every lab value, lab result, or lab order mentioned (e.g., "vitamin D was low", "TSH normal", "new lab order sent") — include the trend and what is being re-checked
+- Every symptom, change in symptom, sleep/appetite/energy detail, side effect, and functional impact (work, parenting, relationships, executive function)
+- Every stressor, life event, and contextual detail
+- Every risk-relevant statement (SI, HI, self-harm, hopelessness, substance use, sleep changes that imply risk)
+- Every patient-education topic that came up (medication risks, side effects, lifestyle, sleep hygiene, lab follow-up, etc.)
+- Every plan/follow-up item discussed
+
+If the patient mentioned a lab abnormality (e.g., low vitamin D) AND a treatment lapse (e.g., stopped supplement), you MUST include BOTH in the note and reflect the plan to recheck the lab and resume/adjust treatment.
+
+Nothing clinically relevant from the transcript may be omitted. Missing the vitamin D / supplement / lab recheck pattern is a documentation failure.
+
+Now generate TWO outputs from the transcript below. You MUST use these exact delimiter lines, each on its own line with nothing else on that line, so the outputs can be machine-split:
+
+=== EM_NOTE_START ===
+[full E/M note here]
+=== EM_NOTE_END ===
+=== THERAPY_NOTE_START ===
+[full psychotherapy note here]
+=== THERAPY_NOTE_END ===
+
+Do NOT include any preamble, explanation, or trailing text outside these delimiters.
 
 === OUTPUT 1: E/M PSYCHIATRIC FOLLOW-UP NOTE (99214) ===
 
-Use these section headers exactly, each on its own line:
+Use these section headers exactly, each on its own line, IN THIS ORDER. Every section is REQUIRED — never omit any section. If a section truly has no content, write "Not reported this visit" rather than skipping it.
 
 Telehealth Statement:
 Chief Complaint:
 HPI:
+Interval History:
 Current Symptoms:
 Medications:
+Supplements / OTC:
+Labs Reviewed:
 Psychosocial / Functioning:
 Review of Systems:
 Mental Status Exam:
 Risk Assessment:
 Assessment:
+Medical Decision Making (MDM):
 Plan:
+Patient Education:
+Follow-up:
 Billing:
 
 Guidelines for the E/M note:
 - Telehealth Statement: state platform Carepatron (HIPAA-compliant), verbal consent obtained, secure video session, patient location [insert], provider location [insert], emergency plan 911/988 reviewed, limitations of virtual exam noted, technical issues none unless transcript indicates otherwise.
 - Chief Complaint: one concise line in patient's words if available.
 - HPI: narrative paragraph showing symptom trajectory and context since last visit. Do not list — write like a clinician.
+- Interval History: any new events, hospitalizations, ER visits, life changes, new medical diagnoses, new providers since last visit.
 - Current Symptoms: grouped meaningfully (mood, anxiety, sleep, cognition, functioning). No robotic dumps. Only relevant negatives.
-- Medications: each med with adherence, response, tolerability, side effects, and rationale. If continuing, justify why (e.g., "continues to tolerate well, targeting residual anxiety").
+- Medications: each prescribed med with name, dose, frequency, adherence, response, tolerability, side effects, and rationale. If continuing, justify why (e.g., "continues to tolerate well, targeting residual anxiety"). If a med was missed, stopped, or changed, document it explicitly.
+- Supplements / OTC: every non-prescription supplement, vitamin, or OTC mentioned, including adherence and any lapses (e.g., "patient stopped vitamin D supplement after one month"). This section is mandatory if any supplement was discussed.
+- Labs Reviewed: list every lab value or lab-related discussion from the transcript with the abnormality, trend, and clinical interpretation. State explicitly what is being re-checked and why. If a new lab order was sent, document it here. (Example: "Vitamin D was low on prior testing; patient discontinued supplementation after one month. New 25-OH vitamin D level ordered to reassess; will resume cholecalciferol if level remains insufficient.") If no labs discussed, write "None reviewed this visit."
 - Psychosocial / Functioning: stressors and functional impact (work, parenting, relationships, executive function) — this anchors medical necessity.
 - Review of Systems: abbreviated, psych-focused, telehealth-appropriate.
 - Mental Status Exam: telehealth-appropriate paragraph (appearance, behavior, speech, mood, affect, thought process, thought content, perception, cognition, insight, judgment). Mood and affect must align with HPI. Only observable behaviors via video.
-- Risk Assessment: SI/HI presence/absence, self-harm risk, psychosis if relevant, protective factors when appropriate. Defensible language, not vague "stable."
-- Assessment: DSM-5-TR diagnoses with ICD-10 codes. Show clinical reasoning implicitly.
-- Plan: medications (with rationale even if continuing), therapy recommendation, patient education, safety plan, follow-up interval.
-- Billing: CPT 99214 + ${cpt || "9083X"}, Modifier 95, POS 02.
+- Risk Assessment: REQUIRED. Always address SI (presence/absence, ideation/plan/intent/means), HI, self-harm risk, psychosis if relevant, substance use risk if relevant, and protective factors. Use defensible language, not vague "stable." Default if denied: "Patient denies current suicidal or homicidal ideation, plan, or intent. Denies self-harm urges. No psychotic symptoms elicited. Protective factors include [insert from transcript or write 'engagement in treatment, future-oriented thinking, support system']."
+- Assessment: DSM-5-TR diagnoses with ICD-10 codes, each on its own line. Show clinical reasoning implicitly. Include relevant medical comorbidities affecting psychiatric care (e.g., "Vitamin D deficiency, in follow-up—may contribute to mood/fatigue").
+- Medical Decision Making (MDM): explicitly address the three 99214 elements: (1) Number and complexity of problems addressed today (list them, note chronicity, stability, and whether worsening/improving); (2) Amount/complexity of data reviewed (prior labs, new labs ordered, prior records, collateral, medication reconciliation); (3) Risk of complications/morbidity from management decisions (medication risks, lab follow-up, untreated symptoms). This section is what justifies 99214 — make the complexity visible.
+- Plan: NUMBERED list. Every active problem from the Assessment gets its own numbered item. Each item must include: specific action (med name + dose + frequency + change/continue + rationale, OR lab name + reason ordered, OR referral + reason), and any patient-specific instructions. Be detailed, not generic. Include lab follow-up plans explicitly (e.g., "3. Vitamin D deficiency — 25-OH vitamin D level ordered today; will resume cholecalciferol 2000 IU daily if level <30 ng/mL; recheck in 8-12 weeks.").
+- Patient Education: REQUIRED. Bullet or numbered list of specific topics discussed this visit (medication risks/benefits/side effects, importance of adherence, lab follow-up rationale, sleep hygiene, lifestyle factors, when to call the office, crisis resources). Tie to what was actually in the transcript.
+- Follow-up: specific interval (e.g., "4-6 weeks") and what will be reassessed at that visit. Include lab follow-up timing.
+- Billing: CPT 99214 + ${cpt || "9083X"}, Modifier 95, POS 02. Include a one-line statement that the visit met 99214 criteria based on MDM complexity (problems addressed + data reviewed + risk).
+
+INTERNAL CHECK before producing output: Have you included every supplement, lab, dose change, and treatment lapse from the transcript? Is the Plan numbered with one item per active problem? Is Patient Education present and specific? Is the Risk Assessment present with explicit SI/HI language? If any answer is no, fix it before outputting.
 
 === OUTPUT 2: PSYCHOTHERAPY NOTE (${cpt || "9083X"}) ===
 
@@ -940,19 +1023,43 @@ Guidelines for the psychotherapy note:
 - Plan: therapy continuation, frequency, focus for next session.
 
 FORMATTING RULES:
-- Output BOTH sections in plain text, separated by a line of "=====".
+- Wrap each note in its delimiter pair as instructed above (=== EM_NOTE_START === ... === EM_NOTE_END === then === THERAPY_NOTE_START === ... === THERAPY_NOTE_END ===).
 - Do not use markdown bold/italic. Do not include a letterhead, patient name, date, or signature — those are added separately.
 - Use de-identified placeholders [insert] where identifiers would go. Never invent identifiers.
 - If something was not discussed, write "not reported" or omit appropriately.
 
 TRANSCRIPT (de-identified clinical content):
 ${transcriptText}`;
-        const note = await openaiChat(env, [
+        // gpt-4o for now; consider gpt-4-turbo or o1 for higher complexity
+        const raw = await openaiChat(env, [
           { role: "system", content: system },
           { role: "user", content: user },
         ], "gpt-4o");
+        // Split into E/M note and therapy note using delimiters
+        function extractBetween(src, startDelim, endDelim) {
+          const i = src.indexOf(startDelim);
+          if (i < 0) return "";
+          const after = i + startDelim.length;
+          const j = src.indexOf(endDelim, after);
+          if (j < 0) return src.slice(after).trim();
+          return src.slice(after, j).trim();
+        }
+        let emNote = extractBetween(raw, "=== EM_NOTE_START ===", "=== EM_NOTE_END ===");
+        let therapyNote = extractBetween(raw, "=== THERAPY_NOTE_START ===", "=== THERAPY_NOTE_END ===");
+        // Fallback if model didn't follow delimiters: try splitting on "=====" or full output to E/M
+        if (!emNote && !therapyNote) {
+          const parts = raw.split(/^={3,}\s*$/m);
+          if (parts.length >= 2) {
+            emNote = parts[0].trim();
+            therapyNote = parts.slice(1).join("\n").trim();
+          } else {
+            emNote = raw.trim();
+            therapyNote = "";
+          }
+        }
         return json({
-          note,
+          emNote,
+          therapyNote,
           title: t.title || "",
           date: t.date || null,
         });
