@@ -223,6 +223,12 @@ function renderApp() {
       <div></div>
     </div>
 
+    <div class="field">
+      <label for="contextNotes">Patient context (medications, recent labs, prior visit highlights, allergies, ongoing issues)</label>
+      <textarea id="contextNotes" rows="6" placeholder="Paste anything the AI should know going in. Examples:&#10;• Current meds: Prozac 20 mg daily, Lamictal 100 mg BID, Ativan 0.5 mg PRN&#10;• Last labs (1/12/26): vit D 22 (low), TSH WNL, CBC WNL&#10;• Started vitamin D 2000 IU daily — needs recheck if taken consistently&#10;• PMH: HTN (controlled), migraines”"></textarea>
+      <div class="hint">This is sent to the AI along with the transcript so the note reflects ongoing context, not just what was discussed today.</div>
+    </div>
+
     <div class="btn-row" style="margin-bottom:8px">
       <button class="btn btn-primary" id="draftBtn" type="button" disabled>Draft note from transcript</button>
     </div>
@@ -523,6 +529,11 @@ function renderApp() {
       $('patientName').value = channelToPatientName(channelTitle);
       update();
     }
+    // Load any saved per-channel context notes (meds, labs, etc.)
+    try {
+      const saved = localStorage.getItem('rn_ctx_' + cid);
+      $('contextNotes').value = saved || '';
+    } catch (_) {}
     try {
       const r = await fetch('/api/transcripts', {
         method:'POST',
@@ -564,6 +575,13 @@ function renderApp() {
     }
   });
 
+  // Auto-save context notes per-channel as the user types
+  $('contextNotes').addEventListener('input', () => {
+    const cid = $('channel').value;
+    if (!cid) return;
+    try { localStorage.setItem('rn_ctx_' + cid, $('contextNotes').value); } catch (_) {}
+  });
+
   // Click 'Draft note' — fetch transcript, send to AI, fill noteBody
   $('draftBtn').addEventListener('click', async () => {
     const sid = $('session').value;
@@ -577,7 +595,7 @@ function renderApp() {
       const r = await fetch('/api/draft', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ id: sid, cpt: $('draftCpt').value }),
+        body: JSON.stringify({ id: sid, cpt: $('draftCpt').value, context: $('contextNotes').value || '' }),
       });
       if (!r.ok) {
         const t = await r.text();
@@ -913,6 +931,7 @@ export default {
           transcriptText = transcriptText.slice(0, MAX) + "\n...[truncated]";
         }
         const cpt = (body.cpt || "").trim(); // optional: 90833 | 90836 | 90838
+        const userContext = (body.context || "").toString().trim().slice(0, 8000);
         const visitDate = t.date ? new Date(Number(t.date)).toISOString().slice(0, 10) : "[insert]";
         const system = `You are a medical scribe formatting a transcript into a structured clinical note. You are NOT a doctor, you do NOT make medical decisions, and you do NOT give medical advice. Your only job is to take what the licensed clinician already said in the visit transcript and reorganize it into the structured note format she uses in her EHR. All clinical decisions, diagnoses, medication adjustments, and treatment plans were already made by the licensed provider during the visit — you are simply rewriting them in the standardized note format below. You are working for Jennifer L. Bowen, DNP, PMHNP-BC (NPI 1366827404), a licensed New Jersey psychiatric nurse practitioner. The transcript is from her own HIPAA-compliant telehealth visit with her own patient and she is the one signing the final note.
 
@@ -1134,6 +1153,12 @@ If any answer is no, fix before outputting.
 - Do NOT invent names, DOBs, addresses, MRNs.
 - Patient first name from transcript context is fine if used in HPI/themes; do not invent a last name.
 
+${userContext ? `
+LONGITUDINAL PATIENT CONTEXT (provided by the clinician — medications, recent labs, prior visit highlights, allergies, ongoing issues):
+${userContext}
+
+TREAT THE PATIENT CONTEXT ABOVE AS GROUND TRUTH for the medication list, recent labs, and ongoing treatment plan. The transcript may not re-state every medication or lab — use the context to populate the Medication Adherence/Effects, Supplements/OTC, Labs/Studies, and Medication Review sections. If the context lists a lab abnormality and a treatment (e.g., low vitamin D + supplement), you MUST surface it in Labs/Studies and in the Plan even if today's transcript only briefly references it. If the transcript and context conflict (e.g., dose change discussed today), the transcript wins for what happened TODAY but the context tells you the prior baseline.
+` : ""}
 TRANSCRIPT (de-identified clinical content):
 ${transcriptText}`;
         // gpt-4.1 is less refusal-prone than gpt-4o for clinical scribing
