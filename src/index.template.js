@@ -252,6 +252,13 @@ function renderApp() {
       <textarea id="telehealth" rows="4">${DEFAULT_TELEHEALTH}</textarea>
     </div>
 
+    <div class="btn-row" style="margin-top:18px;margin-bottom:6px;align-items:center">
+      <button class="btn btn-primary" id="saveLibBtn" type="button">Save to library</button>
+      <button class="btn btn-secondary" id="openLibBtn" type="button">Saved notes…</button>
+      <span id="saveLibStatus" class="hint" style="margin-left:10px"></span>
+    </div>
+    <div class="hint" style="margin-bottom:10px">Saved encrypted to your private AWS S3 bucket (resonance-notes-prod, KMS-encrypted, BAA-covered).</div>
+
     <h2 style="margin-top:24px">E/M note (99214)</h2>
     <div class="field">
       <textarea id="noteBody" placeholder="Paste or draft the E/M note here…"></textarea>
@@ -701,6 +708,194 @@ function renderApp() {
     copyToClipboard(txt, $('copyEmBtn'), $('copyEmStatus'));
   });
 
+  // ---------- Save to library (S3) ----------
+  let currentSavedKey = null; // if a loaded note from library, points to its S3 key for updates
+  $('saveLibBtn').addEventListener('click', async () => {
+    const btn = $('saveLibBtn');
+    const stat = $('saveLibStatus');
+    const channelId = $('channel').value || '';
+    const channelTitle = ($('channel').selectedOptions[0] && $('channel').selectedOptions[0].textContent) || '';
+    const sessionOpt = $('session').selectedOptions[0];
+    const transcriptId = $('session').value || '';
+    const transcriptTitle = (sessionOpt && sessionOpt.textContent) || '';
+    const payload = {
+      channelId,
+      channelTitle,
+      patientName: $('patientName').value || '',
+      visitDate: $('dos').value || new Date().toISOString().slice(0,10),
+      cpt: $('draftCpt').value || '',
+      emNote: $('noteBody').value || '',
+      therapyNote: $('therapyBody').value || '',
+      context: $('contextNotes').value || '',
+      transcriptId,
+      transcriptTitle,
+    };
+    if (!payload.emNote.trim() && !payload.therapyNote.trim()) {
+      stat.textContent = 'Nothing to save — both note bodies are empty.';
+      stat.style.color = '#A12C7B';
+      return;
+    }
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = currentSavedKey ? 'Updating…' : 'Saving…';
+    stat.style.color = '';
+    stat.textContent = '';
+    try {
+      let r;
+      if (currentSavedKey) {
+        r = await fetch('/api/notes/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ key: currentSavedKey, ...payload }) });
+      } else {
+        r = await fetch('/api/notes/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      }
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t || ('HTTP ' + r.status));
+      }
+      const d = await r.json();
+      if (d.key) currentSavedKey = d.key;
+      stat.style.color = '#0E7C66';
+      stat.textContent = currentSavedKey ? 'Saved. Future edits will update this record.' : 'Saved.';
+    } catch (e) {
+      stat.style.color = '#A12C7B';
+      stat.textContent = 'Save failed: ' + (e.message || e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
+
+  // ---------- Saved notes library panel ----------
+  $('openLibBtn').addEventListener('click', async () => { await openLibrary(); });
+  async function openLibrary() {
+    document.body.appendChild(buildLibraryOverlay());
+    await loadLibraryList('');
+  }
+  function buildLibraryOverlay() {
+    const wrap = document.createElement('div');
+    wrap.id = 'libOverlay';
+    wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,18,30,0.55);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto';
+    wrap.innerHTML = [
+      '<div style="background:#fff;max-width:1000px;width:100%;border-radius:14px;padding:24px 28px;box-shadow:0 24px 80px rgba(0,0,0,0.25)">',
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">',
+      '<h2 style="margin:0;font-size:20px">Saved notes library</h2>',
+      '<button id="libCloseBtn" class="btn btn-secondary" type="button">Close</button>',
+      '</div>',
+      '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">',
+      '<select id="libChannelFilter" style="flex:1;min-width:200px;padding:8px;border:1px solid #d4d7e0;border-radius:8px"><option value="">All patients</option></select>',
+      '<input id="libSearch" type="search" placeholder="Search note text…" style="flex:2;min-width:240px;padding:8px;border:1px solid #d4d7e0;border-radius:8px">',
+      '<button id="libRefreshBtn" class="btn btn-secondary" type="button">Refresh</button>',
+      '</div>',
+      '<div id="libList" style="min-height:200px">Loading…</div>',
+      '</div>'
+    ].join('');
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+    setTimeout(() => {
+      const close = document.getElementById('libCloseBtn');
+      if (close) close.addEventListener('click', () => wrap.remove());
+      const refresh = document.getElementById('libRefreshBtn');
+      if (refresh) refresh.addEventListener('click', () => loadLibraryList(document.getElementById('libChannelFilter').value));
+      const filter = document.getElementById('libChannelFilter');
+      if (filter) {
+        // Populate from current channel dropdown
+        const ch = $('channel');
+        for (const opt of ch.options) {
+          if (!opt.value) continue;
+          const o = document.createElement('option');
+          o.value = opt.value; o.textContent = opt.textContent;
+          filter.appendChild(o);
+        }
+        filter.addEventListener('change', () => loadLibraryList(filter.value));
+      }
+      const search = document.getElementById('libSearch');
+      if (search) search.addEventListener('input', () => filterLibraryDisplay(search.value));
+    }, 0);
+    return wrap;
+  }
+  let libCache = [];
+  async function loadLibraryList(channelId) {
+    const list = document.getElementById('libList');
+    list.textContent = 'Loading…';
+    try {
+      const q = channelId ? ('?channelId=' + encodeURIComponent(channelId)) : '';
+      const r = await fetch('/api/notes/list' + q);
+      if (!r.ok) throw new Error(await r.text());
+      const d = await r.json();
+      libCache = d.notes || [];
+      renderLibrary(libCache);
+    } catch (e) {
+      list.innerHTML = '<div style="color:#A12C7B">Failed to load: ' + escapeHtml(String(e.message || e)) + '</div>';
+    }
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function renderLibrary(items) {
+    const list = document.getElementById('libList');
+    if (!items || items.length === 0) {
+      list.innerHTML = '<div class="hint">No saved notes yet. Generate a draft and click "Save to library".</div>';
+      return;
+    }
+    list.innerHTML = items.map((n) => {
+      const dt = new Date(n.lastModified).toLocaleString();
+      const tag = (n.cpt || 'E/M only');
+      const k = escapeHtml(n.key);
+      return '<div class="libItem" data-key="' + k + '" style="border:1px solid #e3e6ef;border-radius:10px;padding:12px 14px;margin-bottom:10px;cursor:pointer;background:#fff">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">' +
+        '<div style="font-weight:600">' + escapeHtml(n.patientName || n.channelTitle || 'Unknown patient') + ' — ' + escapeHtml(n.visitDate || '') + '</div>' +
+        '<div class="hint" style="font-size:12px">' + escapeHtml(tag) + ' • ' + escapeHtml(dt) + '</div>' +
+        '</div>' +
+        '<div class="hint" style="margin-top:4px;font-size:13px">' + escapeHtml(n.transcriptTitle || '') + '</div>' +
+        '<div style="margin-top:6px;font-size:13px;color:#444;max-height:54px;overflow:hidden">' + escapeHtml(n.preview || '') + '…</div>' +
+        '<div class="btn-row" style="margin-top:8px">' +
+        '<button class="btn btn-secondary libLoadBtn" type="button" data-key="' + k + '">Load</button>' +
+        '<button class="btn btn-secondary libDelBtn" type="button" data-key="' + k + '" style="color:#A12C7B">Delete</button>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+    list.querySelectorAll('.libLoadBtn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); loadNoteFromLibrary(b.dataset.key); }));
+    list.querySelectorAll('.libDelBtn').forEach((b) => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this saved note? This cannot be undone.')) return;
+      try {
+        const r = await fetch('/api/notes/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ key: b.dataset.key }) });
+        if (!r.ok) throw new Error(await r.text());
+        await loadLibraryList(document.getElementById('libChannelFilter').value);
+      } catch (err) { alert('Delete failed: ' + (err.message || err)); }
+    }));
+  }
+  function filterLibraryDisplay(q) {
+    if (!q) return renderLibrary(libCache);
+    const ql = q.toLowerCase();
+    renderLibrary(libCache.filter((n) => (
+      (n.patientName || '').toLowerCase().includes(ql) ||
+      (n.channelTitle || '').toLowerCase().includes(ql) ||
+      (n.preview || '').toLowerCase().includes(ql) ||
+      (n.transcriptTitle || '').toLowerCase().includes(ql) ||
+      (n.visitDate || '').toLowerCase().includes(ql)
+    )));
+  }
+  async function loadNoteFromLibrary(key) {
+    try {
+      const r = await fetch('/api/notes/get?key=' + encodeURIComponent(key));
+      if (!r.ok) throw new Error(await r.text());
+      const d = await r.json();
+      $('noteBody').value = d.emNote || '';
+      $('therapyBody').value = d.therapyNote || '';
+      $('contextNotes').value = d.context || '';
+      $('patientName').value = d.patientName || '';
+      $('dos').value = d.visitDate || '';
+      if (d.cpt) $('draftCpt').value = d.cpt;
+      currentSavedKey = key;
+      $('saveLibStatus').style.color = '#0E7C66';
+      $('saveLibStatus').textContent = 'Loaded. Edits will update this saved note.';
+      const ov = document.getElementById('libOverlay');
+      if (ov) ov.remove();
+      update();
+    } catch (e) {
+      alert('Load failed: ' + (e.message || e));
+    }
+  }
+  // Reset "current saved key" tracking whenever a fresh draft is generated
+  $('draftBtn').addEventListener('click', () => { currentSavedKey = null; });
+
   $('copyTherapyBtn').addEventListener('click', () => {
     const txt = $('therapyBody').value.trim();
     if (!txt) { $('copyTherapyStatus').textContent = 'Therapy note is empty.'; return; }
@@ -798,6 +993,120 @@ async function openaiChat(env, messages, model) {
     throw new Error("OpenAI error: " + JSON.stringify(data).slice(0, 500));
   }
   return data.choices?.[0]?.message?.content || "";
+}
+
+// ----- AWS SigV4 helpers (S3) -----
+async function sha256Hex(str) {
+  const buf = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hmac(key, data) {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw", typeof key === "string" ? new TextEncoder().encode(key) : key,
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data)));
+}
+async function hmacHex(key, data) {
+  const sig = await hmac(key, data);
+  return [...sig].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function awsDateStamp(d) {
+  const iso = d.toISOString().replace(/[-:]/g, "").replace(/\..*/, "") + "Z";
+  return { amzDate: iso, dateStamp: iso.slice(0, 8) };
+}
+function awsUriEncode(s, encodeSlash = true) {
+  return s.split("").map((c) => {
+    if (/[A-Za-z0-9_.~-]/.test(c)) return c;
+    if (c === "/" && !encodeSlash) return c;
+    return "%" + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0");
+  }).join("");
+}
+// Sign and execute an S3 request. method: GET|PUT|DELETE; key: object key (no leading slash); body: string|Uint8Array|undefined; query: {param:value} for listing; headers: extra headers map
+async function s3Request(env, method, key, body = "", query = {}, extraHeaders = {}) {
+  const region = env.AWS_REGION || "us-east-1";
+  const bucket = env.S3_BUCKET;
+  const accessKey = env.AWS_ACCESS_KEY_ID;
+  const secretKey = env.AWS_SECRET_ACCESS_KEY;
+  if (!bucket || !accessKey || !secretKey) {
+    throw new Error("AWS credentials not configured (set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, S3_BUCKET as worker secrets)");
+  }
+  const host = `${bucket}.s3.${region}.amazonaws.com`;
+  const now = new Date();
+  const { amzDate, dateStamp } = awsDateStamp(now);
+  const bodyBytes = typeof body === "string" ? new TextEncoder().encode(body) : (body || new Uint8Array());
+  const payloadHash = await sha256Hex(typeof body === "string" ? body : new TextDecoder().decode(bodyBytes));
+  const canonicalUri = "/" + awsUriEncode(key, false);
+  const canonicalQuery = Object.keys(query).sort().map(
+    (k) => awsUriEncode(k) + "=" + awsUriEncode(String(query[k]))
+  ).join("&");
+  const headers = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+    ...extraHeaders,
+  };
+  if (method === "PUT" && !headers["content-type"]) headers["content-type"] = "application/json";
+  const sortedHeaderKeys = Object.keys(headers).map((k) => k.toLowerCase()).sort();
+  const canonicalHeaders = sortedHeaderKeys.map((k) => `${k}:${String(headers[Object.keys(headers).find((h) => h.toLowerCase() === k)]).trim()}\n`).join("");
+  const signedHeaders = sortedHeaderKeys.join(";");
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credScope = `${dateStamp}/${region}/s3/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credScope, await sha256Hex(canonicalRequest)].join("\n");
+  const kDate = await hmac("AWS4" + secretKey, dateStamp);
+  const kRegion = await hmac(kDate, region);
+  const kService = await hmac(kRegion, "s3");
+  const kSigning = await hmac(kService, "aws4_request");
+  const signature = await hmacHex(kSigning, stringToSign);
+  const authHeader = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const url = `https://${host}${canonicalUri}${canonicalQuery ? "?" + canonicalQuery : ""}`;
+  const fetchHeaders = { ...headers, Authorization: authHeader };
+  const res = await fetch(url, {
+    method,
+    headers: fetchHeaders,
+    body: method === "GET" || method === "DELETE" || method === "HEAD" ? undefined : bodyBytes,
+  });
+  return res;
+}
+async function s3PutJson(env, key, obj) {
+  const res = await s3Request(env, "PUT", key, JSON.stringify(obj));
+  if (!res.ok) throw new Error(`S3 PUT failed: ${res.status} ${await res.text()}`);
+  return true;
+}
+async function s3GetJson(env, key) {
+  const res = await s3Request(env, "GET", key);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`S3 GET failed: ${res.status} ${await res.text()}`);
+  return await res.json();
+}
+async function s3Delete(env, key) {
+  const res = await s3Request(env, "DELETE", key);
+  if (!res.ok && res.status !== 404) throw new Error(`S3 DELETE failed: ${res.status} ${await res.text()}`);
+  return true;
+}
+// List objects with optional prefix; returns array of {key, lastModified, size}
+async function s3List(env, prefix = "") {
+  const all = [];
+  let continuationToken = undefined;
+  do {
+    const query = { "list-type": "2", prefix, "max-keys": "1000" };
+    if (continuationToken) query["continuation-token"] = continuationToken;
+    const res = await s3Request(env, "GET", "", "", query);
+    if (!res.ok) throw new Error(`S3 LIST failed: ${res.status} ${await res.text()}`);
+    const xml = await res.text();
+    // Lightweight XML parsing
+    const contents = xml.match(/<Contents>[\s\S]*?<\/Contents>/g) || [];
+    for (const c of contents) {
+      const k = (c.match(/<Key>([^<]+)<\/Key>/) || [])[1];
+      const lm = (c.match(/<LastModified>([^<]+)<\/LastModified>/) || [])[1];
+      const sz = (c.match(/<Size>([^<]+)<\/Size>/) || [])[1];
+      if (k) all.push({ key: k, lastModified: lm, size: Number(sz) || 0 });
+    }
+    const truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+    continuationToken = truncated ? (xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/) || [])[1] : undefined;
+  } while (continuationToken);
+  return all;
 }
 
 function json(data, status = 200) {
@@ -1204,6 +1513,118 @@ ${transcriptText}`;
           title: t.title || "",
           date: t.date || null,
         });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+
+    // ---------- Notes library (S3-backed) ----------
+    // Save: POST /api/notes/save  body: { channelId, channelTitle, patientName, visitDate, cpt, emNote, therapyNote, context, transcriptId, transcriptTitle, sessionDateMs }
+    if (pathname === "/api/notes/save" && method === "POST") {
+      try {
+        const b = await request.json();
+        const channelId = (b.channelId || "").toString().trim() || "unknown";
+        const visitDate = (b.visitDate || new Date().toISOString().slice(0, 10)).toString().slice(0, 10);
+        const ts = Date.now();
+        const key = `notes/${channelId}/${visitDate}-${ts}.json`;
+        const record = {
+          version: 1,
+          savedAt: new Date().toISOString(),
+          channelId,
+          channelTitle: b.channelTitle || "",
+          patientName: b.patientName || "",
+          visitDate,
+          cpt: b.cpt || "",
+          emNote: b.emNote || "",
+          therapyNote: b.therapyNote || "",
+          context: b.context || "",
+          transcriptId: b.transcriptId || "",
+          transcriptTitle: b.transcriptTitle || "",
+          sessionDateMs: b.sessionDateMs || null,
+          notes: b.notes || "",
+        };
+        await s3PutJson(env, key, record);
+        return json({ ok: true, key });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+    // Update existing note: POST /api/notes/update body: { key, ...fields }
+    if (pathname === "/api/notes/update" && method === "POST") {
+      try {
+        const b = await request.json();
+        const key = (b.key || "").toString();
+        if (!key.startsWith("notes/")) return json({ error: "invalid key" }, 400);
+        const existing = await s3GetJson(env, key);
+        if (!existing) return json({ error: "not found" }, 404);
+        const merged = { ...existing };
+        for (const f of ["emNote", "therapyNote", "context", "patientName", "visitDate", "cpt", "notes"]) {
+          if (f in b) merged[f] = b[f];
+        }
+        merged.updatedAt = new Date().toISOString();
+        await s3PutJson(env, key, merged);
+        return json({ ok: true, key });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+    // List: GET /api/notes/list?channelId=... (channelId optional; if omitted, all notes)
+    if (pathname === "/api/notes/list" && method === "GET") {
+      try {
+        const channelId = (url.searchParams.get("channelId") || "").trim();
+        const prefix = channelId ? `notes/${channelId}/` : "notes/";
+        const objs = await s3List(env, prefix);
+        // Pull metadata in parallel (limit to most recent 200)
+        const sorted = objs
+          .filter((o) => o.key.endsWith(".json"))
+          .sort((a, b) => (a.lastModified < b.lastModified ? 1 : -1))
+          .slice(0, 200);
+        const items = await Promise.all(
+          sorted.map(async (o) => {
+            try {
+              const rec = await s3GetJson(env, o.key);
+              if (!rec) return null;
+              return {
+                key: o.key,
+                lastModified: o.lastModified,
+                channelId: rec.channelId,
+                channelTitle: rec.channelTitle,
+                patientName: rec.patientName,
+                visitDate: rec.visitDate,
+                cpt: rec.cpt,
+                transcriptTitle: rec.transcriptTitle,
+                hasEm: !!(rec.emNote && rec.emNote.length),
+                hasTherapy: !!(rec.therapyNote && rec.therapyNote.length),
+                preview: ((rec.emNote || rec.therapyNote || "").slice(0, 240)),
+              };
+            } catch (_) { return null; }
+          })
+        );
+        return json({ notes: items.filter(Boolean) });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+    // Get full note: GET /api/notes/get?key=notes/...
+    if (pathname === "/api/notes/get" && method === "GET") {
+      try {
+        const key = (url.searchParams.get("key") || "").trim();
+        if (!key.startsWith("notes/")) return json({ error: "invalid key" }, 400);
+        const rec = await s3GetJson(env, key);
+        if (!rec) return json({ error: "not found" }, 404);
+        return json(rec);
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+    // Delete: POST /api/notes/delete body: { key }
+    if (pathname === "/api/notes/delete" && method === "POST") {
+      try {
+        const b = await request.json();
+        const key = (b.key || "").toString();
+        if (!key.startsWith("notes/")) return json({ error: "invalid key" }, 400);
+        await s3Delete(env, key);
+        return json({ ok: true });
       } catch (e) {
         return json({ error: String(e.message || e) }, 500);
       }
