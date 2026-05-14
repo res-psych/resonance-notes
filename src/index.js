@@ -195,7 +195,19 @@ function renderApp() {
   <div class="panel">
     <h2>Draft from transcript</h2>
 
-    <div class="field row">
+    <div class="field" style="margin-bottom:8px">
+      <label>Meeting source</label>
+      <div role="tablist" style="display:inline-flex;gap:0;border:1px solid #d4d7e0;border-radius:8px;overflow:hidden">
+        <button type="button" id="srcRecentBtn" role="tab" aria-selected="true"
+          style="padding:8px 14px;border:0;background:#5C4A8A;color:#fff;cursor:pointer;font-weight:600">Recent meetings</button>
+        <button type="button" id="srcChannelBtn" role="tab" aria-selected="false"
+          style="padding:8px 14px;border:0;background:#fff;color:#333;cursor:pointer;font-weight:600">Patient channel</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Recent meetings shows the latest meetings on this Fireflies account. Patient channel filters by a specific patient's channel.</div>
+    </div>
+
+    <!-- Channel-mode picker -->
+    <div class="field row" id="channelPicker" style="display:none">
       <div>
         <label for="channel">Patient channel</label>
         <select id="channel">
@@ -208,6 +220,19 @@ function renderApp() {
           <option value="">Pick a channel first</option>
         </select>
       </div>
+    </div>
+
+    <!-- Recent-meetings-mode picker -->
+    <div class="field" id="recentPicker">
+      <label for="recentMeeting">Recent meetings</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="recentMeeting" style="flex:1">
+          <option value="">Loading recent meetings…</option>
+        </select>
+        <button type="button" id="recentRefreshBtn" class="btn btn-secondary" style="white-space:nowrap">Refresh</button>
+        <button type="button" id="recentMoreBtn" class="btn btn-secondary" style="white-space:nowrap" disabled>Load more</button>
+      </div>
+      <div class="hint" style="margin-top:6px" id="recentHint">Loading…</div>
     </div>
 
     <div class="field row">
@@ -455,7 +480,15 @@ function renderApp() {
     });
 
   // ────── Fireflies + AI drafting ──────
-  let allSessions = [];
+  let allSessions = [];          // sessions for currently selected channel
+  let recentMeetings = [];       // currently loaded recent meetings
+  let currentSource = 'recent';  // 'recent' | 'channel'
+
+  // The transcript id + display label currently armed for drafting / saving.
+  // Set from whichever picker is active. Keeps /api/draft and Save-to-library
+  // working identically regardless of source.
+  let selectedTranscriptId = '';
+  let selectedTranscriptTitle = '';
 
   function setStatus(text, kind) {
     const el = $('draftStatus');
@@ -497,8 +530,139 @@ function renderApp() {
     return dateStr + '  •  ' + timeStr + dur + (s.title ? '  —  ' + s.title : '');
   }
 
-  // Load channels on page open
-  (async () => {
+  // ── Meeting-source toggle (Recent vs Channel) ──
+  function setSource(src) {
+    currentSource = src;
+    const recentActive = src === 'recent';
+    $('recentPicker').style.display = recentActive ? '' : 'none';
+    $('channelPicker').style.display = recentActive ? 'none' : '';
+    const rBtn = $('srcRecentBtn'), cBtn = $('srcChannelBtn');
+    rBtn.setAttribute('aria-selected', recentActive ? 'true' : 'false');
+    cBtn.setAttribute('aria-selected', recentActive ? 'false' : 'true');
+    rBtn.style.background = recentActive ? '#5C4A8A' : '#fff';
+    rBtn.style.color = recentActive ? '#fff' : '#333';
+    cBtn.style.background = recentActive ? '#fff' : '#5C4A8A';
+    cBtn.style.color = recentActive ? '#333' : '#fff';
+    // Refresh the armed transcript from whichever picker is now active.
+    if (recentActive) {
+      armFromRecent($('recentMeeting').value);
+    } else {
+      armFromChannelSession($('session').value);
+    }
+  }
+  $('srcRecentBtn').addEventListener('click', () => setSource('recent'));
+  $('srcChannelBtn').addEventListener('click', () => {
+    setSource('channel');
+    // Lazy-load channels the first time channel mode is opened.
+    if (!channelsLoaded) loadChannels();
+  });
+
+  function armFromRecent(id) {
+    if (!id) {
+      selectedTranscriptId = '';
+      selectedTranscriptTitle = '';
+      $('draftBtn').disabled = true;
+      return;
+    }
+    const m = recentMeetings.find(x => x.id === id);
+    selectedTranscriptId = id;
+    const opt = $('recentMeeting').selectedOptions[0];
+    selectedTranscriptTitle = (opt && opt.textContent) || (m && m.title) || '';
+    $('draftBtn').disabled = false;
+    if (m && m.date) {
+      const d = new Date(Number(m.date));
+      const iso = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+      $('dos').value = iso;
+      update();
+    }
+  }
+
+  function armFromChannelSession(id) {
+    if (!id) {
+      selectedTranscriptId = '';
+      selectedTranscriptTitle = '';
+      $('draftBtn').disabled = true;
+      return;
+    }
+    selectedTranscriptId = id;
+    const opt = $('session').selectedOptions[0];
+    selectedTranscriptTitle = (opt && opt.textContent) || '';
+    $('draftBtn').disabled = false;
+  }
+
+  // ── Recent meetings ──
+  let recentSkip = 0;
+  const RECENT_PAGE = 25;
+  async function loadRecentMeetings(append = false) {
+    const sel = $('recentMeeting');
+    const hint = $('recentHint');
+    const moreBtn = $('recentMoreBtn');
+    if (!append) {
+      recentSkip = 0;
+      recentMeetings = [];
+      sel.innerHTML = '<option value="">Loading recent meetings…</option>';
+      hint.textContent = 'Loading…';
+      moreBtn.disabled = true;
+    } else {
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'Loading…';
+    }
+    try {
+      const r = await fetch('/api/recent-meetings', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ limit: RECENT_PAGE, skip: recentSkip }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const fresh = (d.transcripts || []).slice()
+        .sort((a,b) => Number(b.date||0) - Number(a.date||0));
+      if (append) {
+        // Merge, dedupe by id, keep date-desc order
+        const seen = new Set(recentMeetings.map(m => m.id));
+        for (const m of fresh) if (!seen.has(m.id)) { recentMeetings.push(m); seen.add(m.id); }
+        recentMeetings.sort((a,b) => Number(b.date||0) - Number(a.date||0));
+      } else {
+        recentMeetings = fresh;
+      }
+      recentSkip += fresh.length;
+      sel.innerHTML = '<option value="">Pick a recent meeting…</option>';
+      for (const m of recentMeetings) {
+        const o = document.createElement('option');
+        o.value = m.id;
+        o.textContent = fmtSessionLabel(m);
+        sel.appendChild(o);
+      }
+      hint.textContent = recentMeetings.length
+        ? ('Showing ' + recentMeetings.length + ' most recent meeting' + (recentMeetings.length === 1 ? '' : 's') + '.')
+        : 'No recent meetings found.';
+      // If Fireflies returned a full page, more may be available.
+      moreBtn.disabled = fresh.length < RECENT_PAGE;
+      moreBtn.textContent = 'Load more';
+      // Re-arm if user already had a selection
+      armFromRecent(sel.value);
+    } catch (e) {
+      sel.innerHTML = '<option value="">Failed to load</option>';
+      hint.textContent = 'Could not load recent meetings.';
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'Load more';
+      setStatus('Recent meetings unavailable: ' + (e.message || e), 'error');
+    }
+  }
+  $('recentRefreshBtn').addEventListener('click', () => loadRecentMeetings(false));
+  $('recentMoreBtn').addEventListener('click', () => loadRecentMeetings(true));
+  $('recentMeeting').addEventListener('change', () => armFromRecent($('recentMeeting').value));
+
+  // Recent meetings are the default source — load on page open.
+  loadRecentMeetings(false);
+
+  // Channels are loaded lazily (only if Jen switches to channel mode), so the
+  // page doesn't pay for an extra Fireflies round-trip on first paint.
+  let channelsLoaded = false;
+  async function loadChannels() {
+    channelsLoaded = true;
     try {
       const r = await fetch('/api/channels');
       if (!r.ok) throw new Error('Failed to load channels');
@@ -514,10 +678,11 @@ function renderApp() {
         sel.appendChild(o);
       }
     } catch (e) {
+      channelsLoaded = false;
       $('channel').innerHTML = '<option value="">Could not load channels</option>';
       setStatus('Channels not available: ' + (e.message || e), 'error');
     }
-  })();
+  }
 
   // When channel changes, load its sessions
   $('channel').addEventListener('change', async () => {
@@ -568,7 +733,7 @@ function renderApp() {
   // When a session is picked, enable Draft + auto-fill date
   $('session').addEventListener('change', () => {
     const sid = $('session').value;
-    $('draftBtn').disabled = !sid;
+    armFromChannelSession(sid);
     if (sid) {
       const s = allSessions.find(x => x.id === sid);
       if (s && s.date) {
@@ -591,7 +756,7 @@ function renderApp() {
 
   // Click 'Draft note' — fetch transcript, send to AI, fill noteBody
   $('draftBtn').addEventListener('click', async () => {
-    const sid = $('session').value;
+    const sid = selectedTranscriptId;
     if (!sid) return;
     const btn = $('draftBtn');
     const origText = btn.textContent;
@@ -713,11 +878,13 @@ function renderApp() {
   $('saveLibBtn').addEventListener('click', async () => {
     const btn = $('saveLibBtn');
     const stat = $('saveLibStatus');
-    const channelId = $('channel').value || '';
-    const channelTitle = ($('channel').selectedOptions[0] && $('channel').selectedOptions[0].textContent) || '';
-    const sessionOpt = $('session').selectedOptions[0];
-    const transcriptId = $('session').value || '';
-    const transcriptTitle = (sessionOpt && sessionOpt.textContent) || '';
+    // Channel info only applies when channel-mode is the source; blank in recent mode.
+    const channelId = currentSource === 'channel' ? ($('channel').value || '') : '';
+    const channelTitle = currentSource === 'channel'
+      ? (($('channel').selectedOptions[0] && $('channel').selectedOptions[0].textContent) || '')
+      : '';
+    const transcriptId = selectedTranscriptId || '';
+    const transcriptTitle = selectedTranscriptTitle || '';
     const payload = {
       channelId,
       channelTitle,
@@ -1196,6 +1363,30 @@ export default {
           }
         }`;
         const data = await fireflies(env, query, { channelId, limit });
+        return json({ transcripts: data.transcripts || [] });
+      } catch (e) {
+        return json({ error: String(e.message || e) }, 500);
+      }
+    }
+
+    // ── API: list recent Fireflies meetings (any channel / no channel) ─
+    // Returns the latest transcripts the API key owner has access to. Used
+    // by the "Recent meetings" picker so Jen can grab a meeting that isn't
+    // tied to a patient channel (or whose channel she doesn't recall).
+    if (pathname === "/api/recent-meetings" && method === "POST") {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const limit = Math.min(Math.max(parseInt(body.limit, 10) || 25, 1), 50);
+        const skip = Math.max(parseInt(body.skip, 10) || 0, 0);
+        // Fireflies `transcripts` query without channel_id returns the
+        // caller's own recent meetings (mine: true keeps it scoped to
+        // the API-key owner so we don't pull workspace-wide meetings).
+        const query = `query($limit: Int, $skip: Int) {
+          transcripts(limit: $limit, skip: $skip, mine: true) {
+            id title date duration organizer_email
+          }
+        }`;
+        const data = await fireflies(env, query, { limit, skip });
         return json({ transcripts: data.transcripts || [] });
       } catch (e) {
         return json({ error: String(e.message || e) }, 500);
