@@ -1533,7 +1533,7 @@ Risk Assessment
 • Acute risk: [Low/Moderate/High] — [SI/HI status, intent/plan/means]
 • Chronic/static factors: [history]
 • Protective factors: [from transcript: insight, engagement in care, support system, employment, pets, etc.]
-• Access to lethal means: [discussed/not discussed; concerns]
+• Access to lethal means: [e.g., "Patient reports no access to firearms or other lethal means"; note any concerns]
 • Plan: Continue routine risk monitoring; safety plan reviewed (911/988).
 
 Current Functioning
