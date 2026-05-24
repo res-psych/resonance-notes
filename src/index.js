@@ -1475,7 +1475,7 @@ Generate TWO outputs. Wrap each in delimiter lines exactly as shown, on their ow
 
 # OUTPUT 1: E/M NOTE — 99214 (TELEMEDICINE)
 
-Match this exact structure and section headers (use the same wording, capitalization, and order as below). Where placeholders like [insert] appear, leave them so Jen can fill them in. Use plain text — no markdown bold or italic.
+Match this exact structure and section headers (use the same wording, capitalization, and order as below). Lock order to: Header -> Telehealth Compliance Statement -> Subjective (CC, HPI, Medication Adherence / Effects, Supplements / OTC, Review of Systems, Relevant Psychosocial Updates) -> Objective (MSE, Labs/Studies split into Completed and Pending / Ordered today) -> Risk Assessment -> Current Functioning -> Medication Review -> Assessment / Diagnoses -> Plan -> Patient Understanding & Agreement -> Medical Decision Making (MDM) -> CPT Code Justification -> Action Items. Where placeholders like [insert] appear, leave them so Jen can fill them in. Use plain text — no markdown bold or italic.
 
 E/M Note — 99214 (Telemedicine)
 Patient: [insert]
@@ -1495,14 +1495,14 @@ Subjective
 Chief Complaint (CC): [one line, in patient's words if available]
 
 History of Present Illness (HPI):
-[Narrative paragraph(s). Show symptom trajectory and context since last visit. Tie symptoms to functional impact. Include adherence to medications and a denial-of-SI/HI line near the end if appropriate. Write like a clinician, not a list.]
+[One focused, problem-oriented paragraph (6-10 sentences). Cover symptom change since last visit, severity, timing/triggers, partial vs full response to current regimen, and concrete functional impact tied to specific symptoms. Do NOT repeat psychosocial context already captured in Relevant Psychosocial Updates. End with one sentence denying SI/HI/psychosis/mania when supported by transcript.]
 
 Medication Adherence / Effects:
-• [Med name + dose + frequency — adherence, tolerability, response, rationale. One bullet per medication.]
-• [If a dose change is happening this visit: name it and state the plan, e.g., "Plan: Increase Prozac to 40 mg daily; monitor 2–3 weeks."]
+• [One bullet per prescribed medication using ALL required fields in this order: Name: [ ]; Dose: [ ] (if missing use [dose not specified - clarify]); Frequency: [ ] (if missing use [frequency not specified - clarify]); Adherence: [ ]; Benefit/Clinical response: [ ]; Adverse effects: [or "none reported"]; Change today: [yes/no + rationale].]
+• [For lamotrigine titration, explicitly include: current dose, target dose, next step, and timing trigger (e.g., after labs, in X days, or at next visit).]
 
 Supplements / OTC (include only if any are mentioned):
-• [Each supplement with adherence and any lapse, e.g., "Vitamin D — patient stopped supplement after one month; not currently taking."]
+• [One bullet per supplement/OTC using the same required fields: Name, Dose (or [dose not specified - clarify]), Frequency (or [frequency not specified - clarify]), Adherence, Benefit/Clinical response, Adverse effects (or none reported), Change today (yes/no + rationale).]
 
 Review of Systems (Abbreviated):
 • Psychiatric: [findings]
@@ -1524,10 +1524,17 @@ Affect: [...]
 Thought Process: [...]
 Thought Content: No SI/HI, no psychosis [or describe findings]
 Cognition: Alert and oriented ×4
+Attention: [Populate when CC/HPI references cognitive symptoms, cognitive medication side effects, or functional decline; otherwise "not specifically assessed today."]
+Memory: [Populate when CC/HPI references cognitive symptoms, cognitive medication side effects, or functional decline; otherwise "not specifically assessed today."]
+Concentration: [Populate when CC/HPI references cognitive symptoms, cognitive medication side effects, or functional decline; otherwise "not specifically assessed today."]
 Insight/Judgment: [...]
 Telehealth-specific observation: [stable connection, engagement, etc.]
 
-Labs/Studies: [Each lab with value, arrow (↑/↓/WNL), and reference range if available, OR "None reviewed today" / "Pending". Always surface abnormalities discussed in the transcript with what's being rechecked.]
+Labs/Studies
+Completed (results available):
+• [Date + lab + result + trend (↑/↓/WNL) + reference range if available + relevance to plan. If none: "None reviewed today."]
+Pending / Ordered today:
+• [Tests pending, newly ordered, or planned follow-up labs with timing/reason. If none: "None ordered/pending today."]
 
 Risk Assessment
 • Acute risk: [Low/Moderate/High] — [SI/HI status, intent/plan/means]
@@ -1537,7 +1544,7 @@ Risk Assessment
 • Plan: Continue routine risk monitoring; safety plan reviewed (911/988).
 
 Current Functioning
-[1–3 sentences on day-to-day functioning, work, relationships.]
+[1–3 sentences on day-to-day functioning, work, relationships, explicitly linking limitations to specific symptoms when present.]
 
 Medication Review
 • [Each med — continue/change with rationale, tolerability, monitoring]
@@ -1550,12 +1557,13 @@ Assessment / Diagnoses (DSM-5-TR / ICD-10-CM)
 3. [Z-codes for psychosocial/occupational stressors as appropriate, e.g., Z56.9 — Occupational stress]
 [Include relevant medical comorbidities being co-managed, e.g., E55.9 — Vitamin D deficiency]
 
-Rationale: [1–3 sentences of clinical reasoning explaining the picture today.]
+Rationale: [1–3 sentences explicitly stating whether conditions are stable/improving/worsening, response to current treatment, and why outpatient telehealth level of care remains appropriate today.]
 
 Plan
 1) [Top-level category — e.g., Medication Management]
    • [Specific action with med name + dose + change/continue + rationale]
-   • [Monitoring]
+   • [Monitoring plan]
+   • [Return precautions tied to that medication change/decision]
 2) [Top-level category — e.g., Diagnostics / Care Coordination]
    • [Lab orders, referrals, follow-ups with other providers]
 3) [Top-level category — e.g., Patient Education / Lifestyle]
@@ -1566,6 +1574,10 @@ Plan
    • [Specific interval, e.g., "2 weeks" or "2–3 weeks or sooner if symptoms worsen"]
    • Continue supportive therapy and medication monitoring.
    • Emergency plan reviewed (911/988).
+6) 99214 MDM Support Summary
+   • Established problem(s) with exacerbation: [yes/no + one-line rationale]
+   • Prescription drug management: [yes/no + specify which medication(s)]
+   • Overall risk level: [low/moderate/high + one-line rationale]
 
 Patient Understanding & Agreement
 Patient verbalized understanding of plan, follow-up, and safety measures.
@@ -1574,33 +1586,32 @@ Medical Decision Making (MDM) — Moderate Complexity (99214)
 • Problems: [number/complexity of problems addressed today — chronic conditions, exacerbations, new issues]
 • Data: [labs reviewed, labs ordered, prior records, coordination with outside providers]
 • Risk: [prescription drug management, diagnostic coordination, untreated symptom risk]
+• 99214 support summary:
+  - Established problem(s) with exacerbation: [yes/no + one-line rationale]
+  - Prescription drug management: [yes/no + specify which medication(s)]
+  - Overall risk level: [low/moderate/high + one-line rationale]
 
 CPT Code Justification
-• 99214: [Moderate MDM; chronic illness with exacerbation; medication management; diagnostic coordination; risk counseling via telehealth.]
+• Problem complexity: [one short sentence]
+• Data reviewed/ordered: [one short sentence]
+• Risk of management: [one short sentence]
+• 99214: [one short sentence tying the above elements to moderate MDM.]
 ${cpt ? `• ${cpt}: [Psychotherapy ${therapyDuration}, see separate note.]
 ` : ''}
 Action Items
 • [Specific tasks for Jen or staff: send order, verify referral, confirm scheduling, etc.]
 
-Condensed, Insurance-Friendly Treatment Plan
-• Problem/Goal: [overall framing]
-• Objectives (4–6 weeks):
-   • [Measurable objective 1]
-   • [Measurable objective 2]
-   • [Measurable objective 3]
-• Interventions: [Medication management, psychoeducation, stress-management strategies, therapy, care coordination as applicable]
-• Outcome Measures: [Self-rated improvement, adherence verified, functional milestones]
-• Follow-up: [interval] (telehealth). Safety plan reviewed (911/988).
-
-Provider: Jennifer L. Bowen, DNP, PMHNP-BC
-State of Practice: New Jersey (Telepsychiatry)
-
 INTERNAL CHECK before outputting Output 1:
+- HPI is 6-10 sentences, symptom-focused, and avoids duplicating psychosocial section content?
 - Every supplement, lab, dose change, and treatment lapse from the transcript captured?
+- Every medication/supplement/OTC line has all required fields (name, dose, frequency, adherence, benefit/response, adverse effects, change today) with [not specified - clarify] placeholders when missing?
+- Any lamotrigine titration explicitly states current dose, target dose, next step, and timing trigger?
+- Labs/Studies is split into Completed and Pending / Ordered today?
 - Plan has numbered top-level categories with sub-bullets?
 - Patient Education is specific and tied to what was actually discussed?
 - Risk Assessment has all 5 sub-bullets present?
-- MDM has Problems / Data / Risk explicitly?
+- Assessment rationale includes stable/improving/worsening, treatment response, and outpatient telehealth appropriateness?
+- MDM has Problems / Data / Risk explicitly and includes the 3-line 99214 support summary?
 If any answer is no, fix before outputting.
 
 # OUTPUT 2: PSYCHOTHERAPY NOTE — ${therapyCpt}
