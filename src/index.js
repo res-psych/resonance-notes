@@ -1443,6 +1443,14 @@ BE CONCISE — SAY EACH THING ONCE. The biggest documentation trap is repeating 
 
 STRICTLY DO NOT FABRICATE: names, DOB, identifiers, symptoms not stated, risk that was not assessed, medication changes, therapy duration/content, OR safety-assessment specifics. In particular: do NOT auto-populate "access to lethal means: denies firearms" or any similar lethal-means statement unless the transcript shows it was actually discussed today. If it was not assessed today, write "not assessed this visit" — NEVER boilerplate firearm/means language. If information is missing, write "not reported" or omit. Use de-identified placeholders only.
 
+MEDICATION-NAME LOCKDOWN: Never substitute one drug for a similar-sounding or same-class drug. Diazepam ≠ clonazepam ≠ lorazepam ≠ alprazolam; venlafaxine ≠ desvenlafaxine; sertraline ≠ citalopram ≠ escitalopram; bupropion ≠ buspirone. Use the EXACT name and dose from the transcript and longitudinal context. If the transcript is ambiguous, write "[medication name unclear — verify]" rather than guessing. Doses must also stay verbatim — do not normalize 5–10 mg PRN into a single dose, do not convert mg to a different strength, do not infer a frequency that was not stated.
+
+ABNORMAL LABS MUST NOT BE COLLAPSED TO "WNL": If a lab from the longitudinal context or transcript is flagged High/Low/abnormal, document the actual value, the flag, the reference range, and the relevance to plan. Do not summarize a panel of mixed normal-and-abnormal results as "WNL" or "no actionable abnormalities." Each abnormal value gets its own line. This is non-negotiable — collapsing abnormals into "WNL" is a documentation and medico-legal failure.
+
+ACTIVE-MEDS-ONLY DISCIPLINE: The Medication Adherence / Effects section lists ONLY medications the patient is currently prescribed and taking. Past trials, discontinued medications, and drugs that worsened symptoms belong in the HPI or a separate Past Trials note — never in Medication Adherence. Do not duplicate the same medication into multiple sections.
+
+DIAGNOSIS HYGIENE: Family-history conditions go on Z83.* codes (e.g., Z83.49 family hx of endocrine disease, Z83.79 family hx of digestive disease), NOT on the patient's active problem list as if the patient has the disease. Do not put E03.9 (hypothyroidism) on a euthyroid patient because their mother has Hashimoto's. Panic disorder WITH agoraphobia is F40.01 — do not code it as F41.0 (which is panic disorder without agoraphobia). Only include diagnoses the transcript or longitudinal context actually supports as active for THIS patient.
+
 SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning. Psychotherapy (9083X) = emotional/behavioral work. Do not blur them. The note should sound like one clinician wrote it — no internal contradictions, no copy-paste tone shifts, no generic AI phrasing.`;
 
         let therapyDuration, therapyCpt;
@@ -1486,9 +1494,10 @@ Provider: Jennifer L. Bowen, DNP, PMHNP-BC (NPI 1366827404)
 Location: Telehealth via HIPAA-compliant platform (doxy.me)
 Provider Location: Home office in NJ
 Patient Location: Home in NJ
-POS: 02
 CPT: 99214
 Modifier: 95
+
+[POS, ICD-10 codes, and time are set in the Billing section below — do not duplicate them in this header.]
 
 Telehealth Compliance Statement
 [One paragraph: visit conducted via secure HIPAA-compliant telehealth video; identity verified; verbal consent obtained; technical issues (none, or describe); physical exam deferred due to virtual format; emergency plan reviewed (911 for medical emergencies; 988 for mental health crises); patient verbalized understanding.]
@@ -1535,6 +1544,7 @@ Telehealth-specific observation: [stable connection, engagement, etc.]
 Labs/Studies
 Completed (results available):
 • [Date + lab + result + trend (↑/↓/WNL) + reference range if available + relevance to plan. If none: "None reviewed today."]
+• ABNORMAL VALUES: Each abnormal lab gets its own line with exact value, flag (High/Low), reference range, and clinical relevance. Do NOT summarize a mixed panel as "WNL" or "no actionable abnormalities" — surface every flagged result individually.
 Pending / Ordered today:
 • [Tests pending, newly ordered, or planned follow-up labs with timing/reason. If none: "None ordered/pending today."]
 
@@ -1610,6 +1620,12 @@ INTERNAL CHECK before outputting Output 1:
 - Assessment rationale includes stable/improving/worsening, treatment response, and outpatient telehealth appropriateness — in 1–3 sentences, not a re-narration?
 - MDM has Problems / Data / Risk as SHORT bullets plus the 3-line 99214 support summary (each one short clause)?
 - Medication rationale is stated ONCE (in HPI / Med Adherence) and NOT repeated verbatim in Med Review, Assessment Rationale, MDM, and CPT sections?
+- Every medication name matches the transcript / longitudinal context EXACTLY — no class-confusion swaps (diazepam vs clonazepam, venlafaxine vs desvenlafaxine, etc.)?
+- Medication Adherence section contains ONLY active prescriptions — past trials/discontinued meds are in HPI only?
+- Every abnormal lab from the longitudinal context appears with its actual value, flag, and reference range — nothing was collapsed to "WNL" or "no actionable abnormalities"?
+- Diagnosis list contains ONLY conditions the patient actually has — family-history conditions are on Z83.* codes, not on the active problem list?
+- Panic disorder with agoraphobia is coded F40.01 (not F41.0)?
+- POS, ICD codes, and time are NOT duplicated in the header (they live in the Billing section only)?
 - Note feels human and slightly uneven — no hyper-polished AI cadence like "demonstrated significant insight into" or "verbalized comprehensive understanding of"?
 - Total length feels ~25% leaner than a fully redundant template?
 If any answer is no, fix before outputting.
