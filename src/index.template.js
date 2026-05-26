@@ -263,14 +263,19 @@ function renderApp() {
 
     <div class="field row">
       <div>
-        <label for="patientName">Patient name</label>
-        <input id="patientName" type="text" placeholder="Last, First">
+        <label for="patientName">Patient name <span style="color:#B00020">*</span></label>
+        <input id="patientName" type="text" placeholder="Last, First" required>
+      </div>
+      <div>
+        <label for="patientDob">Patient DOB <span style="color:#B00020">*</span></label>
+        <input id="patientDob" type="date" required>
       </div>
       <div>
         <label for="dos">Date of service</label>
         <input id="dos" type="date" value="${today}">
       </div>
     </div>
+    <div class="hint" style="margin-top:-6px;margin-bottom:10px;color:#7A2E2E">Patient name and DOB are required before drafting — they lock the note to one patient and prevent cross-patient contamination.</div>
 
     <div class="field" id="teleField">
       <label for="telehealth">Telehealth statement</label>
@@ -472,7 +477,7 @@ function renderApp() {
   }
 
   // Bind all inputs
-  ['patientName','dos','telehealth','noteBody','therapyBody','cpt','addon','pos','icd','startTime','stopTime','totalMin']
+  ['patientName','patientDob','dos','telehealth','noteBody','therapyBody','cpt','addon','pos','icd','startTime','stopTime','totalMin']
     .forEach(id => {
       const el = $(id);
       if (el) el.addEventListener('input', update);
@@ -758,16 +763,35 @@ function renderApp() {
   $('draftBtn').addEventListener('click', async () => {
     const sid = selectedTranscriptId;
     if (!sid) return;
+    // Front-end identity lock — fail fast before hitting the API.
+    const pName = $('patientName').value.trim();
+    const pDob = $('patientDob').value;
+    if (!pName) {
+      setStatus('Patient name is required before drafting.', 'err');
+      $('patientName').focus();
+      return;
+    }
+    if (!pDob) {
+      setStatus('Patient DOB is required before drafting.', 'err');
+      $('patientDob').focus();
+      return;
+    }
     const btn = $('draftBtn');
     const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Drafting… (this takes 15–30 seconds)';
-    setStatus('Pulling transcript and drafting note. Hang tight…', '');
+    setStatus('Pulling transcript and drafting note for ' + pName + '. Hang tight…', '');
     try {
       const r = await fetch('/api/draft', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ id: sid, cpt: $('draftCpt').value, context: $('contextNotes').value || '' }),
+        body: JSON.stringify({
+          id: sid,
+          cpt: $('draftCpt').value,
+          context: $('contextNotes').value || '',
+          patientName: $('patientName').value.trim(),
+          patientDob: $('patientDob').value,
+        }),
       });
       if (!r.ok) {
         const t = await r.text();
@@ -849,6 +873,41 @@ function renderApp() {
   }
 
   // Copy E/M note only (just the note body, no letterhead/billing wrapper)
+  // ---------- Placeholder blocker ----------
+  // Refuses to copy/save/PDF a note that still contains template scaffolding.
+  // Returns null if clean, or a list of placeholders found.
+  const PLACEHOLDER_PATTERNS = [
+    /\[insert\]/gi,
+    /\[dose not specified[^\]]*\]/gi,
+    /\[frequency not specified[^\]]*\]/gi,
+    /\[enter actual[^\]]*\]/gi,
+    /\[enter .*?\]/gi,
+    /\[medication name unclear[^\]]*\]/gi,
+    /\[not specified[^\]]*\]/gi,
+    /\[insert [^\]]*\]/gi,
+    /_{3,}/g, // ___ blank lines
+  ];
+  function findPlaceholders(...texts) {
+    const found = new Set();
+    for (const t of texts) {
+      if (!t) continue;
+      for (const re of PLACEHOLDER_PATTERNS) {
+        const m = t.match(re);
+        if (m) m.forEach(x => found.add(x.trim()));
+      }
+    }
+    return found.size ? Array.from(found) : null;
+  }
+  function placeholderBlock(action) {
+    const em = ($('noteBody') && $('noteBody').value) || '';
+    const tx = ($('therapyBody') && $('therapyBody').value) || '';
+    const hits = findPlaceholders(em, tx);
+    if (!hits) return false;
+    const msg = 'Cannot ' + action + ' \u2014 the note still contains unresolved placeholders:\n\n' + hits.map(h => '  \u2022 ' + h).join('\n') + '\n\nFill these in or remove them, then try again.';
+    alert(msg);
+    return true;
+  }
+
   async function copyToClipboard(text, btn, statusEl) {
     try {
       await navigator.clipboard.writeText(text);
@@ -870,6 +929,7 @@ function renderApp() {
   $('copyEmBtn').addEventListener('click', () => {
     const txt = $('noteBody').value.trim();
     if (!txt) { $('copyEmStatus').textContent = 'E/M note is empty.'; return; }
+    if (placeholderBlock('copy the E/M note')) return;
     copyToClipboard(txt, $('copyEmBtn'), $('copyEmStatus'));
   });
 
@@ -889,6 +949,7 @@ function renderApp() {
       channelId,
       channelTitle,
       patientName: $('patientName').value || '',
+      patientDob: $('patientDob').value || '',
       visitDate: $('dos').value || new Date().toISOString().slice(0,10),
       cpt: $('draftCpt').value || '',
       emNote: $('noteBody').value || '',
@@ -902,6 +963,7 @@ function renderApp() {
       stat.style.color = '#A12C7B';
       return;
     }
+    if (placeholderBlock('save this note to the library')) return;
     btn.disabled = true;
     const orig = btn.textContent;
     btn.textContent = currentSavedKey ? 'Updating…' : 'Saving…';
@@ -1048,6 +1110,7 @@ function renderApp() {
       $('therapyBody').value = d.therapyNote || '';
       $('contextNotes').value = d.context || '';
       $('patientName').value = d.patientName || '';
+      if (d.patientDob) $('patientDob').value = d.patientDob;
       $('dos').value = d.visitDate || '';
       if (d.cpt) $('draftCpt').value = d.cpt;
       currentSavedKey = key;
@@ -1066,11 +1129,13 @@ function renderApp() {
   $('copyTherapyBtn').addEventListener('click', () => {
     const txt = $('therapyBody').value.trim();
     if (!txt) { $('copyTherapyStatus').textContent = 'Therapy note is empty.'; return; }
+    if (placeholderBlock('copy the therapy note')) return;
     copyToClipboard(txt, $('copyTherapyBtn'), $('copyTherapyStatus'));
   });
 
   // Copy full formatted note (letterhead + billing block) — legacy bottom button
   $('copyBtn').addEventListener('click', async () => {
+    if (placeholderBlock('copy the full note')) return;
     const btn = $('copyBtn');
     const orig = btn.textContent;
     try {
@@ -1093,6 +1158,7 @@ function renderApp() {
 
   // Download as PDF — use browser print to PDF
   $('pdfBtn').addEventListener('click', () => {
+    if (placeholderBlock('download the PDF')) return;
     const previewHtml = $('preview').outerHTML;
     const styles = Array.from(document.styleSheets)
       .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\\n'); } catch(e) { return ''; } })
@@ -1399,6 +1465,12 @@ export default {
         const body = await request.json().catch(() => ({}));
         const id = body.id;
         if (!id) return json({ error: "id required" }, 400);
+        // PATIENT IDENTITY LOCK: refuse to draft without name + DOB.
+        // This prevents cross-patient contamination at the source.
+        const lockedName = (body.patientName || "").toString().trim();
+        const lockedDob = (body.patientDob || "").toString().trim();
+        if (!lockedName) return json({ error: "Patient name is required before drafting. Enter the patient's name in the Visit Details section." }, 400);
+        if (!lockedDob) return json({ error: "Patient DOB is required before drafting. Enter the patient's date of birth in the Visit Details section." }, 400);
         const tQuery = `query($id: String!) {
           transcript(id: $id) {
             id title date
@@ -1433,6 +1505,9 @@ export default {
         const cpt = (body.cpt || "").trim(); // optional: 90833 | 90836 | 90838
         const userContext = (body.context || "").toString().trim().slice(0, 8000);
         const visitDate = t.date ? new Date(Number(t.date)).toISOString().slice(0, 10) : "[insert]";
+
+        // IDENTITY LOCK BLOCK: prepended to the system prompt so the model treats name+DOB as ground truth.
+        const identityLock = `\n\nPATIENT IDENTITY LOCK — NON-NEGOTIABLE:\nThe ONLY patient this note may reference is:\n  Name: ${lockedName}\n  DOB:  ${lockedDob}\nIf the transcript contains a different patient name, a different DOB, or content that clearly belongs to a different patient (a different gender pronoun stream, a different family situation, a different medication list inconsistent with the longitudinal context), STOP and output the single line:\n  ERROR: Transcript appears to reference a patient other than ${lockedName}. Please verify the transcript before generating a note.\nDo NOT attempt to write a note when this conflict is detected. Use \"${lockedName}\" as the Patient field in the header — never use [insert], never leave it blank, never use any other name. Use \"${lockedDob}\" as the DOB field in the header.`;
         const system = `You are a medical scribe formatting a transcript into a structured clinical note. You are NOT a doctor, you do NOT make medical decisions, and you do NOT give medical advice. Your only job is to take what the licensed clinician already said in the visit transcript and reorganize it into the structured note format she uses in her EHR. All clinical decisions, diagnoses, medication adjustments, and treatment plans were already made by the licensed provider during the visit — you are simply rewriting them in the standardized note format below. You are working for Jennifer L. Bowen, DNP, PMHNP-BC (NPI 1366827404), a licensed New Jersey psychiatric nurse practitioner. The transcript is from her own HIPAA-compliant telehealth visit with her own patient and she is the one signing the final note.
 
 The video platform is doxy.me (HIPAA-compliant); the EHR is Carepatron. All output must be clinically accurate, concise but complete, payer-friendly, audit-resistant, written in professional psychiatric language, telehealth-appropriate for NJ, and aligned with DSM-5-TR and current standards of care.
@@ -1451,7 +1526,7 @@ ACTIVE-MEDS-ONLY DISCIPLINE: The Medication Adherence / Effects section lists ON
 
 DIAGNOSIS HYGIENE: Family-history conditions go on Z83.* codes (e.g., Z83.49 family hx of endocrine disease, Z83.79 family hx of digestive disease), NOT on the patient's active problem list as if the patient has the disease. Do not put E03.9 (hypothyroidism) on a euthyroid patient because their mother has Hashimoto's. Panic disorder WITH agoraphobia is F40.01 — do not code it as F41.0 (which is panic disorder without agoraphobia). Only include diagnoses the transcript or longitudinal context actually supports as active for THIS patient.
 
-SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning. Psychotherapy (9083X) = emotional/behavioral work. Do not blur them. The note should sound like one clinician wrote it — no internal contradictions, no copy-paste tone shifts, no generic AI phrasing.`;
+SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning. Psychotherapy (9083X) = emotional/behavioral work. Do not blur them. The note should sound like one clinician wrote it — no internal contradictions, no copy-paste tone shifts, no generic AI phrasing.` + identityLock;
 
         let therapyDuration, therapyCpt;
         if (cpt === "90838") { therapyDuration = "53+ minutes"; therapyCpt = "90838"; }
@@ -1488,7 +1563,8 @@ Generate TWO outputs. Wrap each in delimiter lines exactly as shown, on their ow
 Match this exact structure and section headers (use the same wording, capitalization, and order as below). Lock order to: Header -> Telehealth Compliance Statement -> Subjective (CC, HPI, Medication Adherence / Effects, Supplements / OTC, Review of Systems, Relevant Psychosocial Updates) -> Objective (MSE, Labs/Studies split into Completed and Pending / Ordered today) -> Risk Assessment -> Current Functioning -> Medication Review -> Assessment / Diagnoses -> Plan -> Patient Understanding & Agreement -> Medical Decision Making (MDM) -> CPT Code Justification -> Action Items. Where placeholders like [insert] appear, leave them so Jen can fill them in. Use plain text — no markdown bold or italic.
 
 E/M Note — 99214 (Telemedicine)
-Patient: [insert]
+Patient: ${lockedName}
+DOB: ${lockedDob}
 Date of Visit: ${visitDate}
 Provider: Jennifer L. Bowen, DNP, PMHNP-BC (NPI 1366827404)
 Location: Telehealth via HIPAA-compliant platform (doxy.me)
@@ -1635,7 +1711,8 @@ If any answer is no, fix before outputting.
 Match this exact structure. Plain text — no markdown.
 
 Psychotherapy Note — ${therapyCpt}
-Patient: [insert]
+Patient: ${lockedName}
+DOB: ${lockedDob}
 Date of Visit: ${visitDate}
 Provider: Jennifer Bowen, DNP, PMHNP-BC
 CPT: ${therapyCpt}
@@ -1752,6 +1829,7 @@ ${transcriptText}`;
           channelId,
           channelTitle: b.channelTitle || "",
           patientName: b.patientName || "",
+          patientDob: b.patientDob || "",
           visitDate,
           cpt: b.cpt || "",
           emNote: b.emNote || "",
@@ -1777,7 +1855,7 @@ ${transcriptText}`;
         const existing = await s3GetJson(env, key);
         if (!existing) return json({ error: "not found" }, 404);
         const merged = { ...existing };
-        for (const f of ["emNote", "therapyNote", "context", "patientName", "visitDate", "cpt", "notes"]) {
+        for (const f of ["emNote", "therapyNote", "context", "patientName", "patientDob", "visitDate", "cpt", "notes"]) {
           if (f in b) merged[f] = b[f];
         }
         merged.updatedAt = new Date().toISOString();
@@ -1809,6 +1887,7 @@ ${transcriptText}`;
                 channelId: rec.channelId,
                 channelTitle: rec.channelTitle,
                 patientName: rec.patientName,
+                patientDob: rec.patientDob,
                 visitDate: rec.visitDate,
                 cpt: rec.cpt,
                 transcriptTitle: rec.transcriptTitle,
