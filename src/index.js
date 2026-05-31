@@ -193,7 +193,7 @@ function renderApp() {
 
   <!-- ── Form panel ── -->
   <div class="panel">
-    <h2>Draft from transcript</h2>
+    <h2>Manual / transcript drafting</h2>
 
     <div class="field" style="margin-bottom:8px">
       <label>Meeting source</label>
@@ -202,8 +202,10 @@ function renderApp() {
           style="padding:8px 14px;border:0;background:#5C4A8A;color:#fff;cursor:pointer;font-weight:600">Recent meetings</button>
         <button type="button" id="srcChannelBtn" role="tab" aria-selected="false"
           style="padding:8px 14px;border:0;background:#fff;color:#333;cursor:pointer;font-weight:600">Patient channel</button>
+        <button type="button" id="srcManualBtn" role="tab" aria-selected="false"
+          style="padding:8px 14px;border:0;background:#fff;color:#333;cursor:pointer;font-weight:600">Manual paste</button>
       </div>
-      <div class="hint" style="margin-top:6px">Recent meetings shows the latest meetings on this Fireflies account. Patient channel filters by a specific patient's channel.</div>
+    <div class="hint" style="margin-top:6px">Use Recent meetings or Patient channel for Fireflies, or Manual paste when you need a backup workflow without transcript lookup.</div>
     </div>
 
     <!-- Channel-mode picker -->
@@ -235,9 +237,35 @@ function renderApp() {
       <div class="hint" style="margin-top:6px" id="recentHint">Loading…</div>
     </div>
 
-    <div class="field row">
+    <!-- Manual-mode source -->
+    <div class="field" id="manualPicker" style="display:none">
+      <label for="manualTranscript">Manual source content</label>
+      <textarea id="manualTranscript" rows="8" placeholder="Paste transcript, Fireflies summary, or source note text here…"></textarea>
+      <div class="field row" style="margin-top:8px;margin-bottom:0">
+        <div>
+          <label for="manualTranscriptTitle">Source title (optional)</label>
+          <input id="manualTranscriptTitle" type="text" placeholder="Manual Fireflies paste">
+        </div>
+        <div>
+          <label for="manualTranscriptDate">Source date (optional)</label>
+          <input id="manualTranscriptDate" type="date">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:6px">Manual mode is for backup use when notes are missing in Mem or when you need to paste source content directly.</div>
+    </div>
+
+    <div class="field row3">
       <div>
-        <label for="draftCpt">Psychotherapy CPT</label>
+        <label for="draftEmCpt">Primary CPT</label>
+        <select id="draftEmCpt">
+          <option value="99214" selected>99214 (established)</option>
+          <option value="99213">99213 (established)</option>
+          <option value="99215">99215 (established)</option>
+          <option value="90792">90792 (initial psych eval)</option>
+        </select>
+      </div>
+      <div>
+        <label for="draftCpt">Psychotherapy add-on</label>
         <select id="draftCpt">
           <option value="90833" selected>90833 (16-37 min)</option>
           <option value="90836">90836 (38-52 min)</option>
@@ -245,7 +273,7 @@ function renderApp() {
           <option value="">None / E&amp;M only</option>
         </select>
       </div>
-      <div></div>
+      <div class="hint" style="align-self:end;margin-bottom:8px">Choose 90792 for initial eval notes; psychotherapy add-on is usually left as none.</div>
     </div>
 
     <div class="field">
@@ -276,6 +304,36 @@ function renderApp() {
       </div>
     </div>
     <div class="hint" style="margin-top:-6px;margin-bottom:10px;color:#7A2E2E">Patient name and DOB are required before drafting — they lock the note to one patient and prevent cross-patient contamination.</div>
+
+    <h2 style="margin-top:20px">Metadata augmentation (optional)</h2>
+    <div class="field row3">
+      <div>
+        <label for="metaMemId">Mem note ID</label>
+        <input id="metaMemId" type="text" placeholder="mem://note-id">
+      </div>
+      <div>
+        <label for="metaFirefliesId">Fireflies transcript ID</label>
+        <input id="metaFirefliesId" type="text" placeholder="manual or transcript ID">
+      </div>
+      <div>
+        <label for="metaSourceSystem">Source system</label>
+        <input id="metaSourceSystem" type="text" placeholder="Mem / Fireflies / Manual">
+      </div>
+    </div>
+    <div class="field row">
+      <div>
+        <label for="metaTags">Tags (comma-separated)</label>
+        <input id="metaTags" type="text" placeholder="follow-up, med-check, labs">
+      </div>
+      <div>
+        <label for="metaExternalId">External reference</label>
+        <input id="metaExternalId" type="text" placeholder="EHR encounter ID, etc.">
+      </div>
+    </div>
+    <div class="field">
+      <label for="metaNotes">Metadata notes</label>
+      <textarea id="metaNotes" rows="3" placeholder="Any extra structured details to preserve with this note output…"></textarea>
+    </div>
 
     <div class="field" id="teleField">
       <label for="telehealth">Telehealth statement</label>
@@ -334,8 +392,8 @@ function renderApp() {
       <div>
         <label for="pos">Place of service</label>
         <select id="pos">
-          <option value="02 — Telehealth (patient not in home)" data-mode="telehealth">02 — Telehealth</option>
-          <option value="10 — Telehealth (patient at home)" data-mode="telehealth" selected>10 — Telehealth (home)</option>
+          <option value="02 — Telehealth (patient not in home)" data-mode="telehealth" selected>02 — Telehealth</option>
+          <option value="10 — Telehealth (patient at home)" data-mode="telehealth">10 — Telehealth (home)</option>
           <option value="11 — Office" data-mode="office">11 — Office (in person)</option>
         </select>
       </div>
@@ -477,7 +535,7 @@ function renderApp() {
   }
 
   // Bind all inputs
-  ['patientName','patientDob','dos','telehealth','noteBody','therapyBody','cpt','addon','pos','icd','startTime','stopTime','totalMin']
+  ['patientName','patientDob','dos','telehealth','noteBody','therapyBody','cpt','addon','pos','icd','startTime','stopTime','totalMin','metaMemId','metaFirefliesId','metaSourceSystem','metaTags','metaExternalId','metaNotes']
     .forEach(id => {
       const el = $(id);
       if (el) el.addEventListener('input', update);
@@ -487,13 +545,37 @@ function renderApp() {
   // ────── Fireflies + AI drafting ──────
   let allSessions = [];          // sessions for currently selected channel
   let recentMeetings = [];       // currently loaded recent meetings
-  let currentSource = 'recent';  // 'recent' | 'channel'
+  let currentSource = 'recent';  // 'recent' | 'channel' | 'manual'
 
   // The transcript id + display label currently armed for drafting / saving.
   // Set from whichever picker is active. Keeps /api/draft and Save-to-library
   // working identically regardless of source.
   let selectedTranscriptId = '';
   let selectedTranscriptTitle = '';
+  function collectMetadata() {
+    return {
+      memNoteId: $('metaMemId').value.trim(),
+      firefliesTranscriptId: $('metaFirefliesId').value.trim(),
+      sourceSystem: $('metaSourceSystem').value.trim(),
+      tags: $('metaTags').value.trim(),
+      externalReference: $('metaExternalId').value.trim(),
+      notes: $('metaNotes').value.trim(),
+    };
+  }
+  function applyMetadata(meta) {
+    const m = meta || {};
+    $('metaMemId').value = m.memNoteId || '';
+    $('metaFirefliesId').value = m.firefliesTranscriptId || '';
+    $('metaSourceSystem').value = m.sourceSystem || '';
+    $('metaTags').value = m.tags || '';
+    $('metaExternalId').value = m.externalReference || '';
+    $('metaNotes').value = m.notes || '';
+  }
+  function draftCombinedCpt() {
+    const em = $('draftEmCpt').value || '99214';
+    const psych = $('draftCpt').value || '';
+    return psych ? (em + ' + ' + psych) : em;
+  }
 
   function setStatus(text, kind) {
     const el = $('draftStatus');
@@ -539,20 +621,28 @@ function renderApp() {
   function setSource(src) {
     currentSource = src;
     const recentActive = src === 'recent';
+    const channelActive = src === 'channel';
+    const manualActive = src === 'manual';
     $('recentPicker').style.display = recentActive ? '' : 'none';
-    $('channelPicker').style.display = recentActive ? 'none' : '';
-    const rBtn = $('srcRecentBtn'), cBtn = $('srcChannelBtn');
+    $('channelPicker').style.display = channelActive ? '' : 'none';
+    $('manualPicker').style.display = manualActive ? '' : 'none';
+    const rBtn = $('srcRecentBtn'), cBtn = $('srcChannelBtn'), mBtn = $('srcManualBtn');
     rBtn.setAttribute('aria-selected', recentActive ? 'true' : 'false');
-    cBtn.setAttribute('aria-selected', recentActive ? 'false' : 'true');
+    cBtn.setAttribute('aria-selected', channelActive ? 'true' : 'false');
+    mBtn.setAttribute('aria-selected', manualActive ? 'true' : 'false');
     rBtn.style.background = recentActive ? '#5C4A8A' : '#fff';
     rBtn.style.color = recentActive ? '#fff' : '#333';
-    cBtn.style.background = recentActive ? '#fff' : '#5C4A8A';
-    cBtn.style.color = recentActive ? '#333' : '#fff';
+    cBtn.style.background = channelActive ? '#5C4A8A' : '#fff';
+    cBtn.style.color = channelActive ? '#fff' : '#333';
+    mBtn.style.background = manualActive ? '#5C4A8A' : '#fff';
+    mBtn.style.color = manualActive ? '#fff' : '#333';
     // Refresh the armed transcript from whichever picker is now active.
     if (recentActive) {
       armFromRecent($('recentMeeting').value);
-    } else {
+    } else if (channelActive) {
       armFromChannelSession($('session').value);
+    } else {
+      armFromManual();
     }
   }
   $('srcRecentBtn').addEventListener('click', () => setSource('recent'));
@@ -561,6 +651,7 @@ function renderApp() {
     // Lazy-load channels the first time channel mode is opened.
     if (!channelsLoaded) loadChannels();
   });
+  $('srcManualBtn').addEventListener('click', () => setSource('manual'));
 
   function armFromRecent(id) {
     if (!id) {
@@ -595,6 +686,16 @@ function renderApp() {
     const opt = $('session').selectedOptions[0];
     selectedTranscriptTitle = (opt && opt.textContent) || '';
     $('draftBtn').disabled = false;
+  }
+  function armFromManual() {
+    selectedTranscriptId = '';
+    selectedTranscriptTitle = $('manualTranscriptTitle').value.trim() || 'Manual source';
+    const txt = $('manualTranscript').value.trim();
+    $('draftBtn').disabled = !txt;
+    if ($('manualTranscriptDate').value) {
+      $('dos').value = $('manualTranscriptDate').value;
+      update();
+    }
   }
 
   // ── Recent meetings ──
@@ -659,6 +760,15 @@ function renderApp() {
   $('recentRefreshBtn').addEventListener('click', () => loadRecentMeetings(false));
   $('recentMoreBtn').addEventListener('click', () => loadRecentMeetings(true));
   $('recentMeeting').addEventListener('change', () => armFromRecent($('recentMeeting').value));
+  $('manualTranscript').addEventListener('input', () => {
+    if (currentSource === 'manual') armFromManual();
+  });
+  $('manualTranscriptTitle').addEventListener('input', () => {
+    if (currentSource === 'manual') armFromManual();
+  });
+  $('manualTranscriptDate').addEventListener('change', () => {
+    if (currentSource === 'manual') armFromManual();
+  });
 
   // Recent meetings are the default source — load on page open.
   loadRecentMeetings(false);
@@ -762,7 +872,9 @@ function renderApp() {
   // Click 'Draft note' — fetch transcript, send to AI, fill noteBody
   $('draftBtn').addEventListener('click', async () => {
     const sid = selectedTranscriptId;
-    if (!sid) return;
+    const manualMode = currentSource === 'manual';
+    const manualTranscript = manualMode ? $('manualTranscript').value.trim() : '';
+    if (!sid && !manualTranscript) return;
     // Front-end identity lock — fail fast before hitting the API.
     const pName = $('patientName').value.trim();
     const pDob = $('patientDob').value;
@@ -780,13 +892,17 @@ function renderApp() {
     const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Drafting… (this takes 15–30 seconds)';
-    setStatus('Pulling transcript and drafting note for ' + pName + '. Hang tight…', '');
+    setStatus((manualMode ? 'Drafting from pasted content' : 'Pulling transcript') + ' for ' + pName + '. Hang tight…', '');
     try {
       const r = await fetch('/api/draft', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           id: sid,
+          rawTranscript: manualTranscript,
+          transcriptTitle: manualMode ? $('manualTranscriptTitle').value.trim() : '',
+          transcriptDate: manualMode ? $('manualTranscriptDate').value : '',
+          emCpt: $('draftEmCpt').value,
           cpt: $('draftCpt').value,
           context: $('contextNotes').value || '',
           patientName: $('patientName').value.trim(),
@@ -800,6 +916,11 @@ function renderApp() {
       const d = await r.json();
       $('noteBody').value = d.emNote || '';
       $('therapyBody').value = d.therapyNote || '';
+      $('cpt').value = $('draftEmCpt').value || '';
+      $('addon').value = $('draftCpt').value || '';
+      if (manualMode && !$('metaSourceSystem').value.trim()) $('metaSourceSystem').value = 'Manual';
+      if (!manualMode && !$('metaSourceSystem').value.trim()) $('metaSourceSystem').value = 'Fireflies';
+      if (sid && !$('metaFirefliesId').value.trim()) $('metaFirefliesId').value = sid;
       update();
       setStatus('Draft ready. Review and edit each note before copying.', 'ok');
     } catch (e) {
@@ -844,6 +965,13 @@ function renderApp() {
     lines.push('PATIENT:           ' + name);
     lines.push('DATE OF SERVICE:   ' + dos);
     lines.push('PROVIDER:          Jennifer L. Bowen, DNP, PMHNP-BC  (NPI 1366827404)');
+    const meta = collectMetadata();
+    if (meta.memNoteId) lines.push('MEM NOTE ID:       ' + meta.memNoteId);
+    if (meta.firefliesTranscriptId) lines.push('FIREFLIES ID:      ' + meta.firefliesTranscriptId);
+    if (meta.sourceSystem) lines.push('SOURCE SYSTEM:     ' + meta.sourceSystem);
+    if (meta.externalReference) lines.push('EXTERNAL REF:      ' + meta.externalReference);
+    if (meta.tags) lines.push('TAGS:              ' + meta.tags);
+    if (meta.notes) lines.push('METADATA NOTES:    ' + meta.notes);
     lines.push('');
     if (posMode !== 'office') {
       lines.push('TELEHEALTH ATTESTATION');
@@ -951,12 +1079,19 @@ function renderApp() {
       patientName: $('patientName').value || '',
       patientDob: $('patientDob').value || '',
       visitDate: $('dos').value || new Date().toISOString().slice(0,10),
-      cpt: $('draftCpt').value || '',
+      cpt: (($('cpt').value || '').trim()
+        ? ((($('addon').value || '').trim() ? ($('cpt').value.trim() + ' + ' + $('addon').value.trim()) : $('cpt').value.trim()))
+        : draftCombinedCpt()),
       emNote: $('noteBody').value || '',
       therapyNote: $('therapyBody').value || '',
       context: $('contextNotes').value || '',
       transcriptId,
       transcriptTitle,
+      sourceMode: currentSource,
+      manualTranscriptTitle: $('manualTranscriptTitle').value || '',
+      manualTranscriptDate: $('manualTranscriptDate').value || '',
+      manualTranscript: $('manualTranscript').value || '',
+      metadata: collectMetadata(),
     };
     if (!payload.emNote.trim() && !payload.therapyNote.trim()) {
       stat.textContent = 'Nothing to save — both note bodies are empty.';
@@ -1112,7 +1247,20 @@ function renderApp() {
       $('patientName').value = d.patientName || '';
       if (d.patientDob) $('patientDob').value = d.patientDob;
       $('dos').value = d.visitDate || '';
-      if (d.cpt) $('draftCpt').value = d.cpt;
+      if (d.sourceMode === 'manual') setSource('manual');
+      $('manualTranscriptTitle').value = d.manualTranscriptTitle || '';
+      $('manualTranscriptDate').value = d.manualTranscriptDate || '';
+      $('manualTranscript').value = d.manualTranscript || '';
+      if (d.cpt) {
+        const parts = String(d.cpt).split('+').map(x => x.trim()).filter(Boolean);
+        const em = parts[0] || '';
+        const add = parts[1] || '';
+        if (em && ['99213','99214','99215','90792'].includes(em)) $('draftEmCpt').value = em;
+        if (add) $('draftCpt').value = add;
+        $('cpt').value = em || '';
+        $('addon').value = add || '';
+      }
+      applyMetadata(d.metadata || {});
       currentSavedKey = key;
       $('saveLibStatus').style.color = '#0E7C66';
       $('saveLibStatus').textContent = 'Loaded. Edits will update this saved note.';
@@ -1463,48 +1611,62 @@ export default {
     if (pathname === "/api/draft" && method === "POST") {
       try {
         const body = await request.json().catch(() => ({}));
-        const id = body.id;
-        if (!id) return json({ error: "id required" }, 400);
+        const id = (body.id || "").toString().trim();
+        const rawTranscriptInput = (body.rawTranscript || "").toString().trim();
+        if (!id && !rawTranscriptInput) return json({ error: "id or rawTranscript required" }, 400);
         // PATIENT IDENTITY LOCK: refuse to draft without name + DOB.
         // This prevents cross-patient contamination at the source.
         const lockedName = (body.patientName || "").toString().trim();
         const lockedDob = (body.patientDob || "").toString().trim();
         if (!lockedName) return json({ error: "Patient name is required before drafting. Enter the patient's name in the Visit Details section." }, 400);
         if (!lockedDob) return json({ error: "Patient DOB is required before drafting. Enter the patient's date of birth in the Visit Details section." }, 400);
-        const tQuery = `query($id: String!) {
-          transcript(id: $id) {
-            id title date
-            sentences { speaker_name text start_time }
+        let transcriptText = "";
+        let t = null;
+        if (id) {
+          const tQuery = `query($id: String!) {
+            transcript(id: $id) {
+              id title date
+              sentences { speaker_name text start_time }
+            }
+          }`;
+          const tData = await fireflies(env, tQuery, { id });
+          t = tData.transcript;
+          if (!t) return json({ error: "Transcript not found" }, 404);
+          const sentences = Array.isArray(t.sentences) ? t.sentences : [];
+          // Group consecutive sentences by speaker
+          const lines = [];
+          let curSpeaker = null;
+          let buf = [];
+          for (const s of sentences) {
+            const sp = s.speaker_name || "Unknown";
+            if (sp !== curSpeaker) {
+              if (buf.length) lines.push(`${curSpeaker}: ${buf.join(" ")}`);
+              curSpeaker = sp;
+              buf = [s.text || ""];
+            } else {
+              buf.push(s.text || "");
+            }
           }
-        }`;
-        const tData = await fireflies(env, tQuery, { id });
-        const t = tData.transcript;
-        if (!t) return json({ error: "Transcript not found" }, 404);
-        const sentences = Array.isArray(t.sentences) ? t.sentences : [];
-        // Group consecutive sentences by speaker
-        const lines = [];
-        let curSpeaker = null;
-        let buf = [];
-        for (const s of sentences) {
-          const sp = s.speaker_name || "Unknown";
-          if (sp !== curSpeaker) {
-            if (buf.length) lines.push(`${curSpeaker}: ${buf.join(" ")}`);
-            curSpeaker = sp;
-            buf = [s.text || ""];
-          } else {
-            buf.push(s.text || "");
-          }
+          if (buf.length) lines.push(`${curSpeaker}: ${buf.join(" ")}`);
+          transcriptText = lines.join("\n");
+        } else {
+          t = {
+            id: "",
+            title: (body.transcriptTitle || "Manual source").toString(),
+            date: body.transcriptDate ? Date.parse(body.transcriptDate) : null,
+          };
+          transcriptText = rawTranscriptInput;
         }
-        if (buf.length) lines.push(`${curSpeaker}: ${buf.join(" ")}`);
-        let transcriptText = lines.join("\n");
         // Cap at ~60k chars to stay within model context comfortably
         const MAX = 60000;
         if (transcriptText.length > MAX) {
           transcriptText = transcriptText.slice(0, MAX) + "\n...[truncated]";
         }
-        const cpt = (body.cpt || "").trim(); // optional: 90833 | 90836 | 90838
+        const emCpt = (body.emCpt || "99214").toString().trim();
+        const cpt = (body.cpt || "").toString().trim(); // optional: 90833 | 90836 | 90838
+        const isInitialEval = emCpt === "90792";
         const userContext = (body.context || "").toString().trim().slice(0, 8000);
-        const visitDate = t.date ? new Date(Number(t.date)).toISOString().slice(0, 10) : "[insert]";
+        const visitDate = t.date ? new Date(Number(t.date)).toISOString().slice(0, 10) : (body.transcriptDate || "[insert]");
 
         // IDENTITY LOCK BLOCK: prepended to the system prompt so the model treats name+DOB as ground truth.
         const identityLock = `\n\nPATIENT IDENTITY LOCK — NON-NEGOTIABLE:\nThe ONLY patient this note may reference is:\n  Name: ${lockedName}\n  DOB:  ${lockedDob}\nIf the transcript contains a different patient name, a different DOB, or content that clearly belongs to a different patient (a different gender pronoun stream, a different family situation, a different medication list inconsistent with the longitudinal context), STOP and output the single line:\n  ERROR: Transcript appears to reference a patient other than ${lockedName}. Please verify the transcript before generating a note.\nDo NOT attempt to write a note when this conflict is detected. Use \"${lockedName}\" as the Patient field in the header — never use [insert], never leave it blank, never use any other name. Use \"${lockedDob}\" as the DOB field in the header.`;
@@ -1528,11 +1690,10 @@ DIAGNOSIS HYGIENE: Family-history conditions go on Z83.* codes (e.g., Z83.49 fam
 
 SEPARATE THE SERVICES: E/M (99214) = medical + diagnostic + medication reasoning. Psychotherapy (9083X) = emotional/behavioral work. Do not blur them. The note should sound like one clinician wrote it — no internal contradictions, no copy-paste tone shifts, no generic AI phrasing.` + identityLock;
 
-        let therapyDuration, therapyCpt;
-        if (cpt === "90838") { therapyDuration = "53+ minutes"; therapyCpt = "90838"; }
-        else if (cpt === "90836") { therapyDuration = "38–52 minutes"; therapyCpt = "90836"; }
-        else if (cpt === "90833") { therapyDuration = "16–37 minutes"; therapyCpt = "90833"; }
-        else { therapyDuration = "16–37 minutes"; therapyCpt = "90833"; }
+        let therapyDuration = "", therapyCpt = "";
+        if (!isInitialEval && cpt === "90838") { therapyDuration = "53+ minutes"; therapyCpt = "90838"; }
+        else if (!isInitialEval && cpt === "90836") { therapyDuration = "38–52 minutes"; therapyCpt = "90836"; }
+        else if (!isInitialEval && cpt === "90833") { therapyDuration = "16–37 minutes"; therapyCpt = "90833"; }
 
         const user = `Read the transcript carefully and silently extract EVERY clinical detail before writing. Do not output the extraction. Capture:
 - Every prescribed medication (name, dose, frequency, adherence, response, side effects, any titration/start/stop)
@@ -1558,11 +1719,11 @@ Generate TWO outputs. Wrap each in delimiter lines exactly as shown, on their ow
 [full psychotherapy note]
 === THERAPY_NOTE_END ===
 
-# OUTPUT 1: E/M NOTE — 99214 (TELEMEDICINE)
+# OUTPUT 1: ${isInitialEval ? "INITIAL EVALUATION NOTE — 90792 (TELEMEDICINE)" : `E/M NOTE — ${emCpt} (TELEMEDICINE)`}
 
 Match this exact structure and section headers (use the same wording, capitalization, and order as below). Lock order to: Header -> Telehealth Compliance Statement -> Subjective (CC, HPI, Medication Adherence / Effects, Supplements / OTC, Review of Systems, Relevant Psychosocial Updates) -> Objective (MSE, Labs/Studies split into Completed and Pending / Ordered today) -> Risk Assessment -> Current Functioning -> Medication Review -> Assessment / Diagnoses -> Plan -> Patient Understanding & Agreement -> Medical Decision Making (MDM) -> CPT Code Justification -> Action Items. Where placeholders like [insert] appear, leave them so Jen can fill them in. Use plain text — no markdown bold or italic.
 
-E/M Note — 99214 (Telemedicine)
+${isInitialEval ? "Initial Psychiatric Evaluation — 90792 (Telemedicine)" : `E/M Note — ${emCpt} (Telemedicine)`}
 Patient: ${lockedName}
 DOB: ${lockedDob}
 Date of Visit: ${visitDate}
@@ -1570,7 +1731,7 @@ Provider: Jennifer L. Bowen, DNP, PMHNP-BC (NPI 1366827404)
 Location: Telehealth via HIPAA-compliant platform (doxy.me)
 Provider Location: Home office in NJ
 Patient Location: Home in NJ
-CPT: 99214
+CPT: ${emCpt}
 Modifier: 95
 
 [POS, ICD-10 codes, and time are set in the Billing section below — do not duplicate them in this header.]
@@ -1667,19 +1828,19 @@ Plan
 Patient Understanding & Agreement
 Patient verbalized understanding of plan, follow-up, and safety measures.
 
-Medical Decision Making (MDM) — Moderate Complexity (99214)
-[Short bullets — do not re-narrate. This is the SINGLE home for the 99214 support summary.]
+Medical Decision Making (MDM) — ${isInitialEval ? "Diagnostic/medical complexity" : `Moderate Complexity (${emCpt})`}
+[Short bullets — do not re-narrate.${isInitialEval ? "" : " This is the SINGLE home for the 99214 support summary."}]
 • Problems: [e.g., "2 chronic psych dx, one with partial response"]
 • Data: [e.g., "vitamin D level reviewed; recheck ordered"]
 • Risk: [e.g., "prescription drug management; SSRI + alcohol interaction discussed"]
-• 99214 support summary:
+${isInitialEval ? "" : `• 99214 support summary:
   - Established problem(s) with exacerbation: [yes/no + one short clause]
   - Prescription drug management: [yes/no + which medication(s)]
-  - Overall risk level: [low/moderate/high + one short clause]
+  - Overall risk level: [low/moderate/high + one short clause]`}
 
 CPT Code Justification
-• 99214: [One line — do not restate MDM. E.g., "Moderate MDM supported by the elements above."]
-${cpt ? `• ${cpt}: [Psychotherapy ${therapyDuration}, see separate note.]
+• ${emCpt}: [One line — do not restate MDM.]
+${therapyCpt ? `• ${therapyCpt}: [Psychotherapy ${therapyDuration}, see separate note.]
 ` : ''}
 Action Items
 • [Specific tasks for Jen or staff: send order, verify referral, confirm scheduling, etc.]
@@ -1706,21 +1867,21 @@ INTERNAL CHECK before outputting Output 1:
 - Total length feels ~25% leaner than a fully redundant template?
 If any answer is no, fix before outputting.
 
-# OUTPUT 2: PSYCHOTHERAPY NOTE — ${therapyCpt}
+# OUTPUT 2: ${therapyCpt ? `PSYCHOTHERAPY NOTE — ${therapyCpt}` : "NO PSYCHOTHERAPY ADD-ON"}
 
 Match this exact structure. Plain text — no markdown.
 
-Psychotherapy Note — ${therapyCpt}
+${therapyCpt ? `Psychotherapy Note — ${therapyCpt}` : "Psychotherapy Note — Not billed"}
 Patient: ${lockedName}
 DOB: ${lockedDob}
 Date of Visit: ${visitDate}
 Provider: Jennifer Bowen, DNP, PMHNP-BC
-CPT: ${therapyCpt}
+${therapyCpt ? `CPT: ${therapyCpt}` : "CPT: None"}
 Modifier: 95
 Format: Telehealth
 
 Psychotherapy Time
-${therapyDuration} of psychotherapy were provided in addition to E/M services.
+${therapyCpt ? `${therapyDuration} of psychotherapy were provided in addition to E/M services.` : "No psychotherapy add-on billed for this visit. Leave this section as 'N/A' unless clinician requests a psychotherapy add-on rewrite."}
 
 Modality
 [One sentence naming the modality, e.g., "Supportive psychotherapy with trauma-informed, insight-oriented, and CBT-informed interventions."]
@@ -1803,6 +1964,9 @@ ${transcriptText}`;
             therapyNote = "";
           }
         }
+        if (!therapyCpt && therapyNote && /not billed|no psychotherapy add-on/i.test(therapyNote)) {
+          therapyNote = "";
+        }
         return json({
           emNote,
           therapyNote,
@@ -1815,7 +1979,7 @@ ${transcriptText}`;
     }
 
     // ---------- Notes library (S3-backed) ----------
-    // Save: POST /api/notes/save  body: { channelId, channelTitle, patientName, visitDate, cpt, emNote, therapyNote, context, transcriptId, transcriptTitle, sessionDateMs }
+    // Save: POST /api/notes/save  body: { channelId, channelTitle, patientName, visitDate, cpt, emNote, therapyNote, context, transcriptId, transcriptTitle, sessionDateMs, metadata, sourceMode, manualTranscript* }
     if (pathname === "/api/notes/save" && method === "POST") {
       try {
         const b = await request.json();
@@ -1837,6 +2001,11 @@ ${transcriptText}`;
           context: b.context || "",
           transcriptId: b.transcriptId || "",
           transcriptTitle: b.transcriptTitle || "",
+          sourceMode: b.sourceMode || "recent",
+          manualTranscriptTitle: b.manualTranscriptTitle || "",
+          manualTranscriptDate: b.manualTranscriptDate || "",
+          manualTranscript: b.manualTranscript || "",
+          metadata: (b.metadata && typeof b.metadata === "object") ? b.metadata : {},
           sessionDateMs: b.sessionDateMs || null,
           notes: b.notes || "",
         };
@@ -1855,9 +2024,10 @@ ${transcriptText}`;
         const existing = await s3GetJson(env, key);
         if (!existing) return json({ error: "not found" }, 404);
         const merged = { ...existing };
-        for (const f of ["emNote", "therapyNote", "context", "patientName", "patientDob", "visitDate", "cpt", "notes"]) {
+        for (const f of ["emNote", "therapyNote", "context", "patientName", "patientDob", "visitDate", "cpt", "notes", "sourceMode", "manualTranscriptTitle", "manualTranscriptDate", "manualTranscript"]) {
           if (f in b) merged[f] = b[f];
         }
+        if ("metadata" in b && b.metadata && typeof b.metadata === "object") merged.metadata = b.metadata;
         merged.updatedAt = new Date().toISOString();
         await s3PutJson(env, key, merged);
         return json({ ok: true, key });
@@ -1890,7 +2060,9 @@ ${transcriptText}`;
                 patientDob: rec.patientDob,
                 visitDate: rec.visitDate,
                 cpt: rec.cpt,
+                sourceMode: rec.sourceMode || "",
                 transcriptTitle: rec.transcriptTitle,
+                metadata: rec.metadata || {},
                 hasEm: !!(rec.emNote && rec.emNote.length),
                 hasTherapy: !!(rec.therapyNote && rec.therapyNote.length),
                 preview: ((rec.emNote || rec.therapyNote || "").slice(0, 240)),
