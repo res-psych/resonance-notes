@@ -1,7 +1,13 @@
 # Resonance Notes
 
-Carepatron-ready note formatter. Paste a raw note → adds header, patient info,
-telehealth statement, billing fields, and signature → copy text or download PDF.
+Carepatron-ready note formatter and manual backup generator for
+`notes.resonancepsychiatry.com`.
+
+- Works as a manual-first fallback when notes are not available in Mem.
+- Supports drafting from Fireflies transcripts **or** pasted manual source text.
+- Supports CPT-driven branching (including psychotherapy add-ons and 90792 initial
+  eval handling).
+- Supports metadata augmentation/editing for existing generated note outputs.
 
 ## Setup
 
