@@ -1031,7 +1031,7 @@ function renderApp() {
     const tx = ($('therapyBody') && $('therapyBody').value) || '';
     const hits = findPlaceholders(em, tx);
     if (!hits) return false;
-    const msg = 'Cannot ' + action + ' \u2014 the note still contains unresolved placeholders:\n\n' + hits.map(h => '  \u2022 ' + h).join('\n') + '\n\nFill these in or remove them, then try again.';
+    const msg = 'Cannot ' + action + ' \u2014 the note still contains unresolved placeholders:\\n\\n' + hits.map(h => '  \u2022 ' + h).join('\\n') + '\\n\\nFill these in or remove them, then try again.';
     alert(msg);
     return true;
   }
